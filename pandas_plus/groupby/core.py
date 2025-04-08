@@ -343,3 +343,14 @@ class GroupBy:
     ):
         # check for nullity
         self.agg(values1, agg_func, mask) / self.agg(values2, agg_func, mask)
+
+    @groupby_method
+    def subset_ratio(
+            self,
+            values: ArrayCollection,
+            subset_mask: ArrayType1D,
+            global_mask: ArrayType1D = None,
+            agg_func="sum",
+    ):
+        # check for nullity
+        self.agg(values, agg_func, subset_mask & global_mask) / self.agg(values, agg_func, global_mask)
