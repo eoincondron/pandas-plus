@@ -1,6 +1,7 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
 from typing import Callable, List
+from inspect import signature
 
 import numpy as np
 import pandas as pd
@@ -98,11 +99,13 @@ def groupby_method(method):
 
     @wraps(method)
     def wrapper(
-        group_key: ArrayCollection, values: ArrayCollection, mask: ArrayType1D = None
+        *args, **kwargs
     ):
+        bound_args = signature(method).bind(*args, **kwargs)
+        group_key = bound_args.arguments['self']
         if not isinstance(group_key, GroupBy):
-            group_key = GroupBy(group_key)
-        return method(group_key, values, mask)
+            bound_args.arguments['self'] = GroupBy(group_key)
+        return method(**bound_args.arguments)
 
     __doc__ = f"""
     Calculate the group-wise {method.__name__} of the given values over the groups defined by `key`
