@@ -108,3 +108,4 @@ def test_reduce_2d(series, op_name, with_nans, skipna, n_threads, integers):
         df.count() if op_name == "count" else df.agg(op_name, skipna=skipna)
     )
     np.testing.assert_array_almost_equal(result, expected.values)
+

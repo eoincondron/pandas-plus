@@ -1,5 +1,7 @@
 from inspect import signature
 from typing import Callable
+from functools import wraps
+from copy import deepcopy
 
 import numba as nb
 import numpy as np
@@ -65,8 +67,9 @@ def _chunk_groupby_args(
 
     kwargs = locals().copy()
     del kwargs['n_chunks']
+    shared_kwargs = {k: kwargs[k] for k in ['target', 'reduce_func', 'must_see']}
 
-    chunked_kwargs = [kwargs.copy() for i in range(n_chunks)]
+    chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
     for name in ['group_key', 'values', 'mask']:
         for chunk_no, arr in enumerate(np.array_split(kwargs[name], n_chunks)):
             chunked_kwargs[chunk_no][name] = arr
@@ -116,7 +119,8 @@ def _group_func_wrap(
             _group_by_iterator, [args.args for args in chunked_args]
         )
         arr = np.vstack(chunks)
-        return nanops.reduce_2d('sum', arr).astype(out_type)
+        chunk_reduce = "sum" if reduce_func_name == "count" else reduce_func_name
+        return nanops.reduce_2d(chunk_reduce, arr).astype(out_type)
 
 
 @check_data_inputs_aligned("group_key", "values", "mask")
