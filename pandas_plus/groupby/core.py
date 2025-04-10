@@ -326,15 +326,14 @@ class GroupBy:
                     f"Mismatch between number of agg funcs ({len(agg_func)}) "
                     f"and number of values ({len(values)})"
                 )
-            return pd.concat(
-                [
+            return pd.DataFrame(
+                {k:
                     self.agg(v, agg_func=f, mask=mask, transform=transform)
-                    for f, v in zip(agg_func, values)
-                ],
-                axis=1,
+                    for f, (k, v) in zip(agg_func, values.items())
+                 },
             )
         else:
-            raise ValueError
+            raise TypeError("agg_func must by a single function name or an iterable of same")
 
     @groupby_method
     def ratio(
