@@ -164,7 +164,7 @@ class GroupBy:
             }
 
         self._group_df = pd.DataFrame(group_key_dict, copy=False)
-        self.grouper = self._group_df.groupby(
+        self._grouper = self._group_df.groupby(
             list(group_key_dict), observed=True
         )._grouper
         self.key_names = [
@@ -181,7 +181,7 @@ class GroupBy:
         int
             Number of distinct groups
         """
-        return self.grouper.ngroups
+        return self._grouper.ngroups
 
     @cached_property
     def result_index(self):
@@ -193,7 +193,7 @@ class GroupBy:
         pd.Index
             Index with one level per group key
         """
-        index = self.grouper.result_index
+        index = self._grouper.result_index
         index.names = self.key_names
         return index
 
@@ -207,7 +207,7 @@ class GroupBy:
         ndarray
             Array of group indices for each original row
         """
-        return self.grouper.group_info[0]
+        return self._grouper.group_info[0]
 
     def _apply_gb_func(
         self,
