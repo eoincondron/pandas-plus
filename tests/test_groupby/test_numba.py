@@ -5,8 +5,8 @@ import pytest
 from inspect import signature
 
 from pandas_plus.groupby.numba import (NumbaGroupByMethods, _chunk_groupby_args, _group_by_iterator,
-                                     group_count, group_mean, group_max,
-                                     group_min, group_sum)
+                                       group_nearby_members, group_count, group_mean,
+                                       group_max, group_min, group_sum)
 from pandas_plus.util import is_null as py_isnull, MIN_INT, NumbaReductionOps
 
 
@@ -261,6 +261,114 @@ class TestGroupSum:
         func_name = func.__name__.split('_')[1]
         expected = pd.Series(values).groupby(group_key).agg(func_name).values
         np.testing.assert_array_almost_equal(result, expected)
+
+
+class TestGroupNearbyMembers:
+    def test_basic_functionality(self):
+        """Test basic functionality with simple inputs."""
+        # Setup - Group 0 has increasing values, Group 1 has some gaps
+        group_key = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 10.0, 11.0, 20.0, 21.0], dtype=np.float64)
+        max_diff = 5.0
+        n_groups = 2  # We have group 0 and group 1
+        
+        # Call the function
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Verify results:
+        # All values in group 0 should be in the same subgroup (diff <= 5)
+        # Group 1 should be split into two subgroups (10->11 and 20->21)
+        expected_subgroups = np.array([0, 0, 0, 0, 1, 1, 2, 2])
+        np.testing.assert_array_equal(result, expected_subgroups)
+    
+    def test_all_new_groups(self):
+        """Test when all values exceed max_diff (each value is its own group)."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 10.0, 20.0, 5.0, 15.0], dtype=np.float64)
+        max_diff = 1.0  # Very small difference threshold
+        n_groups = 2
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Each value should be in its own group
+        expected_subgroups = np.array([0, 1, 2, 3, 4])
+        np.testing.assert_array_equal(result, expected_subgroups)
+    
+    def test_single_group_per_key(self):
+        """Test when all values in each key group are within max_diff."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 1.5, 2.0, 10.0, 10.5, 11.0], dtype=np.float64)
+        max_diff = 10.0  # Large difference threshold
+        n_groups = 2
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Should have one subgroup per original group
+        expected_subgroups = np.array([0, 0, 0, 1, 1, 1])
+        np.testing.assert_array_equal(result, expected_subgroups)
+    
+    def test_with_integer_values(self):
+        """Test with integer values instead of floats."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([1, 2, 10, 5, 15], dtype=np.int64)
+        max_diff = 5
+        n_groups = 2
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Group 0: [1,2] should be one group, 10 another
+        # Group 1: 5 and 15 should be separate groups
+        expected_subgroups = np.array([0, 0, 1, 2, 3])
+        np.testing.assert_array_equal(result, expected_subgroups)
+    
+    def test_interleaved_groups(self):
+        """Test with interleaved group keys."""
+        group_key = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
+        values = np.array([1.0, 10.0, 2.0, 20.0, 10.0, 21.0], dtype=np.float64)
+        max_diff = 5.0
+        n_groups = 2
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Group 0: [1,2] should be one group, 10 another
+        # Group 1: [10] one group, [20,21] another
+        expected_subgroups = np.array([0, 1, 0, 2, 3, 2])
+        np.testing.assert_array_equal(result, expected_subgroups)
+    
+    def test_empty_inputs(self):
+        """Test with empty inputs."""
+        group_key = np.array([], dtype=np.int64)
+        values = np.array([], dtype=np.float64)
+        max_diff = 5.0
+        n_groups = 0
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Should return empty array
+        assert len(result) == 0
+        
+    def test_with_negative_values(self):
+        """Test with negative values."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([-10.0, -5.0, 0.0, -20.0, -15.0], dtype=np.float64)
+        max_diff = 7.0
+        n_groups = 2
+        
+        result = group_nearby_members(group_key, values, max_diff, n_groups)
+        
+        # Group 0: [-10, -5, 0] should split into two groups: [-10, -5] and [0]
+        # Group 1: [-20, -15] should be one group (diff = 5)
+        expected_subgroups = np.array([0, 0, 0, 1, 1])
+        np.testing.assert_array_equal(result, expected_subgroups)
+
+    def test_different_length_fail(self):
+        """Test with negative values."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([0, 2, 4, 4], dtype=np.float64)
+        max_diff = 7.0
+        n_groups = 2
+        with pytest.raises(ValueError):
+            group_nearby_members(group_key, values, max_diff, n_groups)
 
 
 class TestNullChecks:
