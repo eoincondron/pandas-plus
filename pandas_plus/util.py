@@ -368,3 +368,69 @@ class NumbaReductionOps:
     @_scalar_func_decorator
     def sum_square(x, y):
         return x + y**2
+
+
+def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
+    """
+    Get the name attribute of an array if it exists and is not empty.
+
+    Parameters
+    ----------
+    array : Union[np.ndarray, pd.Series, pl.Series]
+        Array-like object to get name from
+
+    Returns
+    -------
+    str or None
+        The name of the array if it exists and is not empty, otherwise None
+    """
+    name = getattr(array, "name", None)
+    if name is None or name == "":
+        return None
+    return name
+
+
+class TempName(str): ...
+
+
+def convert_array_inputs_to_dict(arrays, temp_name_root: str = "_arr_") -> dict:
+    """
+    Convert various array-like inputs to a dictionary of named arrays.
+
+    Parameters
+    ----------
+    arrays : Various types
+        Input arrays in various formats (Mapping, list/tuple of arrays, 2D array,
+        pandas/polars Series or DataFrame)
+    temp_name_root : str, default "_arr_"
+        Prefix to use for generating temporary names for unnamed arrays
+
+    Returns
+    -------
+    dict
+        Dictionary mapping array names to arrays
+
+    Raises
+    ------
+    TypeError
+        If the input type is not supported
+    """
+    if isinstance(arrays, Mapping):
+        return dict(arrays)
+    elif isinstance(arrays, (tuple, list)):
+        names = map(get_array_name, arrays)
+        keys = [
+            name or TempName(f"{temp_name_root}{i}") for i, name in enumerate(names)
+        ]
+        return dict(zip(keys, arrays))  # Fixed: arrays instead of array
+    elif isinstance(arrays, np.ndarray) and arrays.ndim == 2:
+        return convert_array_inputs_to_dict(list(arrays.T))
+    elif isinstance(
+            arrays, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)
+    ):
+        name = get_array_name(arrays)
+        return {name if name is not None else TempName(f"{temp_name_root}0"): arrays}
+    elif isinstance(arrays, (pl.DataFrame, pd.DataFrame)):
+        return {key: arrays[key] for key in arrays.columns}
+    else:
+        raise TypeError(f"Input type {type(arrays)} not supported")
