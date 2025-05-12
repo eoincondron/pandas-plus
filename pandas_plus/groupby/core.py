@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .numba import group_count, group_max, group_mean, group_min, group_sum
+from .numba import group_count, group_max, group_mean, group_min, group_sum, group_nearby_members
 from ..util import (ArrayType1D, ArrayType2D, TempName,
                    convert_array_inputs_to_dict, get_array_name)
 
@@ -107,30 +107,31 @@ def groupby_method(method):
             bound_args.arguments['self'] = GroupBy(group_key)
         return method(**bound_args.arguments)
 
-    __doc__ = f"""
-    Calculate the group-wise {method.__name__} of the given values over the groups defined by `key`
-    
-    Parameters
-    ----------
-    key: An array/Series or a container of same, such as dict, list or DataFrame
-        Defines the groups. May be a single dimension like an array or Series, 
-        or multi-dimensional like a list/dict of 1-D arrays or 2-D array/DataFrame. 
-    values: An array/Series or a container of same, such as dict, list or DataFrame
-        The values to be aggregated. May be a single dimension like an array or Series, 
-        or multi-dimensional like a list/dict of 1-D arrays or 2-D array/DataFrame. 
-    mask: array/Series
-        Optional Boolean array which filters elements out of the calculations
+    if method.__doc__ is None:
+        __doc__ = f"""
+        Calculate the group-wise {method.__name__} of the given values over the groups defined by `key`
         
-    Returns
-    -------
-    pd.Series / pd.DataFrame
-    
-    The result of the group-by calculation. 
-    A Series is returned when `values` is a single array/Series, otherwise a DataFrame. 
-    The index of the result has one level per array/column in the group key. 
+        Parameters
+        ----------
+        key: An array/Series or a container of same, such as dict, list or DataFrame
+            Defines the groups. May be a single dimension like an array or Series, 
+            or multi-dimensional like a list/dict of 1-D arrays or 2-D array/DataFrame. 
+        values: An array/Series or a container of same, such as dict, list or DataFrame
+            The values to be aggregated. May be a single dimension like an array or Series, 
+            or multi-dimensional like a list/dict of 1-D arrays or 2-D array/DataFrame. 
+        mask: array/Series
+            Optional Boolean array which filters elements out of the calculations
+            
+        Returns
+        -------
+        pd.Series / pd.DataFrame
         
-    """
-    wrapper.__doc__ = __doc__
+        The result of the group-by calculation. 
+        A Series is returned when `values` is a single array/Series, otherwise a DataFrame. 
+        The index of the result has one level per array/column in the group key. 
+            
+        """
+        wrapper.__doc__ = __doc__
 
     return wrapper
 
@@ -356,3 +357,24 @@ class GroupBy:
     ):
         # check for nullity
         self.agg(values, agg_func, subset_mask & global_mask) / self.agg(values, agg_func, global_mask)
+
+    @groupby_method
+    def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
+        """
+        Generate subgroups of the groups defined by the GroupBy where the differences between consecutive members of a group are below a threshold.
+        For example, group events which are close in time and which belong to the same group defined by the group key.
+
+        self: GroupBy | ArrayType1D
+            Vector defining the initial groups
+        values:
+            Array of numerical values used to determine closeness of the group members, e.g. an array of timestamps.
+            Assumed to be monotonic non-decreasing.
+        max_diff: float | int
+            The threshold distance for forming a new sub-group
+        """
+        return group_nearby_members(
+            group_key=self.group_ikey,
+            values=values,
+            max_diff=max_diff,
+            n_groups=self.ngroups
+        )

@@ -1,3 +1,4 @@
+import inspect
 from inspect import signature
 from typing import Callable
 from functools import wraps
@@ -223,3 +224,58 @@ class NumbaGroupByMethods:
             reduce_func_name = "last"
         del skip_na
         return _group_func_wrap(**locals())
+
+
+def _wrap_numba(nb_func):
+
+    @wraps(nb_func.py_func)
+    def wrapper(*args, **kwargs):
+        bound_args = inspect.signature(nb_func.py_func).bind(*args, **kwargs)
+        args = [np.asarray(x) if np.ndim(x) > 0 else x for x in  bound_args.args]
+        return nb_func(*args)
+    wrapper.__nb_func__ = nb_func
+
+    return wrapper
+
+
+@check_data_inputs_aligned("group_key", "values")
+@_wrap_numba
+@nb.njit
+def group_nearby_members(group_key: np.ndarray, values: np.ndarray, max_diff: float | int, n_groups: int):
+    """
+    Given a vector of integers defining groups and an aligned numerical vector, values,
+    generate subgroups where the differences between consecutive members of a group are below a threshold.
+    For example, group events which are close in time and which belong to the same group defined by the group key.
+
+    group_key: np.ndarray
+        Vector defining the initial groups
+    values:
+        Array of numerical values used to determine closeness of the group members, e.g. an array of timestamps.
+        Assumed to be monotonic non-decreasing.
+    max_diff: float | int
+        The threshold distance for forming a new sub-group
+    n_groups: int
+        The number of unique groups in group_key
+    """
+    group_counter = -1
+    seen = np.full(n_groups, False)
+    last_seen = np.empty(n_groups, dtype=values.dtype)
+    group_tracker = np.full(n_groups, -1)
+    out = np.full(len(group_key), -1)
+    for i in range(len(group_key)):
+        key = group_key[i]
+        current_value = values[i]
+        if not seen[key]:
+            seen[key] = True
+            make_new_group = True
+        else:
+            make_new_group = abs(current_value - last_seen[key]) > max_diff
+
+        if make_new_group:
+            group_counter += 1
+            group_tracker[key] = group_counter
+
+        last_seen[key] = current_value
+        out[i] = group_tracker[key]
+
+    return out
