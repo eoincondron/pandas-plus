@@ -8,7 +8,7 @@ import concurrent.futures
 import numba as nb
 import numpy as np
 import pandas as pd
-import polars as pl
+# import polars as pl
 from numba.core.extending import overload
 
 T = TypeVar("T")
@@ -434,3 +434,21 @@ def convert_array_inputs_to_dict(arrays, temp_name_root: str = "_arr_") -> dict:
         return {key: arrays[key] for key in arrays.columns}
     else:
         raise TypeError(f"Input type {type(arrays)} not supported")
+
+
+def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
+    bins = np.array(bins)
+    bins = np.sort(bins)
+    is_integer = x.dtype.kind in 'ui' and bins.dtype.kind in 'ui'
+
+    labels = [f' <= {bins[0]}']
+    labels += [f'{left + is_integer} - {right}' for left, right in zip(bins, bins[1:])]
+    labels.append(f' > {bins[-1]}')
+    codes = bins.searchsorted(x)
+    if x.dtype.kind == 'f':
+        codes[np.isnan(x)] = -1
+    out = pd.Categorical.from_codes(codes, labels)
+    if isinstance(x, pd.Series):
+        out = pd.Series(out, index=x.index, name=x.name)
+
+    return out

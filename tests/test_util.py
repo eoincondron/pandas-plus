@@ -9,7 +9,7 @@ import pytest
 
 from pandas_plus.util import (
     MAX_INT, MIN_INT, _get_first_non_null, _null_value_for_array_type,
-    convert_array_inputs_to_dict, get_array_name, is_null
+    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut
 )
 
 
@@ -323,6 +323,215 @@ class TestNullValueForArrayType(unittest.TestCase):
         arr = np.array([1+2j, 3+4j], dtype=complex)
         with self.assertRaises(TypeError):
             _null_value_for_array_type(arr)
+
+
+class TestPrettyCut(unittest.TestCase):
+    """Test cases for the pretty_cut function."""
+
+    def test_basic_integer_cut(self):
+        """Test basic integer cutting with integer bins."""
+        x = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        
+        # Check specific values
+        self.assertEqual(result[0], ' <= 3')  # 1
+        self.assertEqual(result[3], '4 - 6')  # 4
+        self.assertEqual(result[6], '7 - 9')  # 7
+        self.assertEqual(result[9], ' > 9')   # 10
+
+    def test_basic_float_cut(self):
+        """Test basic float cutting with float bins."""
+        x = np.array([1.0, 2.5, 3.7, 4.2, 5.8, 6.1, 7.9, 8.3, 9.4, 10.7])
+        bins = [3.0, 6.0, 9.0]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3.0', '3.0 - 6.0', '6.0 - 9.0', ' > 9.0']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_mixed_int_float_bins(self):
+        """Test with integer data and float bins."""
+        x = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        bins = [3.5, 6.5, 9.5]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3.5', '3.5 - 6.5', '6.5 - 9.5', ' > 9.5']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_pandas_series_input(self):
+        """Test with pandas Series input."""
+        x = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], name='test_series')
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        # Should return a pandas Series
+        self.assertIsInstance(result, pd.Series)
+        self.assertEqual(result.name, 'test_series')
+        self.assertTrue(result.index.equals(x.index))
+        
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.cat.categories.tolist(), expected_labels)
+
+    def test_polars_series_input(self):
+        """Test with polars Series input."""
+        x = pl.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        # Should return a Categorical
+        self.assertIsInstance(result, pd.Categorical)
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_list_bins(self):
+        """Test with bins provided as a list."""
+        x = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        bins = [3, 6, 9]  # List instead of array
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_single_bin(self):
+        """Test with a single bin value."""
+        x = np.array([1, 2, 3, 4, 5])
+        bins = [3]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3', ' > 3']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        
+        # Check values
+        self.assertEqual(result[0], ' <= 3')  # 1
+        self.assertEqual(result[4], ' > 3')   # 5
+
+    def test_empty_array(self):
+        """Test with empty input array."""
+        x = np.array([])
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        self.assertEqual(len(result), 0)
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_all_values_below_first_bin(self):
+        """Test when all values are below the first bin."""
+        x = np.array([1, 2])
+        bins = [5, 10]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 5', '6 - 10', ' > 10']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        self.assertTrue(all(result == ' <= 5'))
+
+    def test_all_values_above_last_bin(self):
+        """Test when all values are above the last bin."""
+        x = np.array([15, 20])
+        bins = [5, 10]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 5', '6 - 10', ' > 10']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        self.assertTrue(all(result == ' > 10'))
+
+    def test_float_with_nan_values(self):
+        """Test float array with NaN values."""
+        x = np.array([1.0, np.nan, 3.0, 4.0, np.nan, 6.0])
+        bins = [2.0, 5.0]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 2.0', '2.0 - 5.0', ' > 5.0']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        
+        # NaN values should result in NaN categories
+        self.assertTrue(pd.isna(result[1]))
+        self.assertTrue(pd.isna(result[4]))
+        
+        # Non-NaN values should be categorized correctly
+        self.assertEqual(result[0], ' <= 2.0')    # 1.0
+        self.assertEqual(result[2], '2.0 - 5.0')  # 3.0
+        self.assertEqual(result[5], ' > 5.0')     # 6.0
+
+    def test_integer_boundary_values(self):
+        """Test integer boundary handling."""
+        x = np.array([3, 4, 6, 7, 9, 10])
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        
+        # Test boundary values
+        self.assertEqual(result[0], ' <= 3')  # 3 (at boundary)
+        self.assertEqual(result[1], '4 - 6')  # 4 (start of next bin)
+        self.assertEqual(result[2], '4 - 6')  # 6 (at boundary)
+        self.assertEqual(result[3], '7 - 9')  # 7 (start of next bin)
+        self.assertEqual(result[4], '7 - 9')  # 9 (at boundary)
+        self.assertEqual(result[5], ' > 9')   # 10 (above last bin)
+
+    def test_float_boundary_values(self):
+        """Test float boundary handling."""
+        x = np.array([3.0, 3.1, 6.0, 6.1, 9.0, 9.1])
+        bins = [3.0, 6.0, 9.0]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3.0', '3.0 - 6.0', '6.0 - 9.0', ' > 9.0']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+        
+        # Test boundary values (floats don't get +1 adjustment)
+        self.assertEqual(result[0], ' <= 3.0')    # 3.0 (at boundary)
+        self.assertEqual(result[1], '3.0 - 6.0')  # 3.1 (just above boundary)
+        self.assertEqual(result[2], '3.0 - 6.0')  # 6.0 (at boundary)
+        self.assertEqual(result[3], '6.0 - 9.0')  # 6.1 (just above boundary)
+        self.assertEqual(result[4], '6.0 - 9.0')  # 9.0 (at boundary)
+        self.assertEqual(result[5], ' > 9.0')     # 9.1 (above last bin)
+
+    def test_unsorted_bins(self):
+        """Test behavior with unsorted bins."""
+        x = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        bins = [6, 3, 9]  # Unsorted
+        result = pretty_cut(x, bins)
+        
+        # The function should still work because bins get converted to array
+        # Labels will reflect the order given
+        expected_labels = [' <= 6', '6 - 3', '3 - 9', ' > 9']
+        self.assertEqual(result.categories.tolist(), expected_labels)
+
+    @pytest.mark.parametrize("array_type", [np.array, pd.Series, pl.Series])
+    def test_different_array_types(self, array_type):
+        """Test with different array types."""
+        if array_type == pd.Series:
+            x = array_type([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], name='test')
+        else:
+            x = array_type([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        
+        bins = [3, 6, 9]
+        result = pretty_cut(x, bins)
+        
+        expected_labels = [' <= 3', '4 - 6', '7 - 9', ' > 9']
+        
+        if isinstance(x, pd.Series):
+            self.assertIsInstance(result, pd.Series)
+            self.assertEqual(result.cat.categories.tolist(), expected_labels)
+        else:
+            self.assertIsInstance(result, pd.Categorical)
+            self.assertEqual(result.categories.tolist(), expected_labels)
+
+    def test_preserve_series_attributes(self):
+        """Test that pandas Series attributes are preserved."""
+        index = pd.Index(['a', 'b', 'c', 'd', 'e'], name='test_index')
+        x = pd.Series([1, 2, 3, 4, 5], index=index, name='test_series')
+        bins = [2, 4]
+        result = pretty_cut(x, bins)
+        
+        self.assertIsInstance(result, pd.Series)
+        self.assertEqual(result.name, 'test_series')
+        self.assertTrue(result.index.equals(x.index))
+        self.assertEqual(result.index.name, 'test_index')
 
 
 if __name__ == "__main__":
