@@ -488,13 +488,108 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
         if left == right:
             labels.append(str(left))
         else:
-            labels.append(f'{left + is_integer} - {right}')
+            labels.append(f'{left} - {right}')
     labels.append(f' > {bins[-1]}')
     codes = bins.searchsorted(x)
-    if x.dtype.kind == 'f':
+    if np_type.kind == 'f':
         codes[np.isnan(x)] = -1
     out = pd.Categorical.from_codes(codes, labels)
     if isinstance(x, pd.Series):
         out = pd.Series(out, index=x.index, name=x.name)
+
+    return out
+
+
+def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allow_duplicates=True):
+    """
+    Convert a boolean DataFrame to a categorical Series with combined labels.
+    
+    This function creates a categorical representation where each unique row 
+    pattern in the boolean DataFrame becomes a category. Column names where 
+    True values occur are joined with a separator to form the category labels.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Boolean DataFrame where each column represents a feature/condition
+        and each row represents an observation.
+    sep : str, default " & "
+        Separator string used to join column names when multiple columns
+        are True in the same row.
+    na_rep : str, default "None"
+        String representation for rows where all values are False.
+        Must not match any column name in the DataFrame.
+    allow_duplicates : bool, default True
+        If True, allows multiple True values per row (joined with separator).
+        If False, raises ValueError when any row has more than one True value.
+        
+    Returns
+    -------
+    pd.Series
+        Series with categorical dtype containing the combined labels.
+        Index matches the input DataFrame's index.
+        
+    Raises
+    ------
+    ValueError
+        If `na_rep` matches any column name in the DataFrame, or if 
+        `allow_duplicates` is False and any row contains multiple True values.
+        
+    Notes
+    -----
+    The function uses numpy.unique to identify distinct row patterns,
+    making it memory efficient for DataFrames with many repeated patterns.
+    
+    Categories are created in the order they appear in the unique row patterns,
+    not necessarily in alphabetical order.
+    
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> df = pd.DataFrame({
+    ...     'A': [True, False, True, False],
+    ...     'B': [False, True, False, True], 
+    ...     'C': [False, False, True, True]
+    ... })
+    >>> result = bools_to_categorical(df)
+    >>> result.cat.categories.tolist()
+    ['A', 'B', 'A & C', 'B & C']
+    
+    >>> # Custom separator
+    >>> result = bools_to_categorical(df, sep=' | ')
+    >>> result[2]  # Row with A=True, C=True
+    'A | C'
+    
+    >>> # All False row handling
+    >>> df_with_empty = pd.DataFrame({
+    ...     'X': [True, False],
+    ...     'Y': [False, False]
+    ... })
+    >>> result = bools_to_categorical(df_with_empty, na_rep='Empty')
+    >>> result[1]
+    'Empty'
+    """
+    if na_rep in df:
+        raise ValueError(f"na_rep={na_rep} clashes with one of the column names")
+    min_bits = min([x for x in [8, 16, 32, 64] if x > df.shape[1]])
+    bit_mask = np.dot(df.values, 2 ** np.arange(df.shape[1], dtype=f'int{min_bits}'))
+    uniques, codes = np.unique(bit_mask, return_inverse=True)
+
+    cats = []
+    for bit_mask in uniques:
+        labels = []
+        for i, col in enumerate(df.columns):
+            if bit_mask & 2 ** i:
+                labels.append(col)
+        if labels:
+            if not allow_duplicates and len(labels) > 1:
+                raise ValueError("Some rows have more than one True value and allow_duplicates is False")
+            cat = sep.join(labels)
+        else:
+            cat = na_rep
+        cats.append(cat)
+
+    out = pd.Categorical.from_codes(codes, cats)
+    out = pd.Series(out, index=df.index)
 
     return out

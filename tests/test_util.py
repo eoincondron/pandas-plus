@@ -526,11 +526,219 @@ class TestPrettyCut:
         bins = [2, 4]
         result = pretty_cut(x, bins)
         
-        self.assertIsInstance(result, pd.Series)
-        self.assertEqual(result.name, 'test_series')
-        self.assertTrue(result.index.equals(x.index))
-        self.assertEqual(result.index.name, 'test_index')
+        assert isinstance(result, pd.Series)
+        assert result.name == 'test_series'
+        assert result.index.equals(x.index)
+        assert result.index.name == 'test_index'
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestBoolsToCategorical:
+    """Test cases for the bools_to_categorical function."""
+
+    def test_basic_functionality(self):
+        """Test basic conversion of boolean DataFrame to categorical."""
+        df = pd.DataFrame({
+            'A': [True, False, True, False],
+            'B': [False, True, False, True],
+            'C': [False, False, True, True]
+        })
+        result = bools_to_categorical(df)
+        
+        assert isinstance(result, pd.Series)
+        assert result.index.equals(df.index)
+        
+        # Check categories
+        expected_categories = ['A', 'B', 'A & C', 'B & C']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+
+    def test_all_false_row(self):
+        """Test handling of rows with all False values."""
+        df = pd.DataFrame({
+            'A': [True, False, False],
+            'B': [False, True, False],
+            'C': [False, False, False]
+        })
+        result = bools_to_categorical(df)
+        
+        expected_categories = ['A', 'B', 'None']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[2] == 'None'
+
+    def test_custom_separator(self):
+        """Test custom separator for joining labels."""
+        df = pd.DataFrame({
+            'X': [True, False],
+            'Y': [True, False],
+            'Z': [False, True]
+        })
+        result = bools_to_categorical(df, sep=' | ')
+        
+        expected_categories = ['X | Y', 'Z']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[0] == 'X | Y'
+
+    def test_custom_na_representation(self):
+        """Test custom NA representation for all-False rows."""
+        df = pd.DataFrame({
+            'A': [True, False],
+            'B': [False, False]
+        })
+        result = bools_to_categorical(df, na_rep='Missing')
+        
+        expected_categories = ['A', 'Missing']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[1] == 'Missing'
+
+    def test_allow_duplicates_true(self):
+        """Test with allow_duplicates=True (default behavior)."""
+        df = pd.DataFrame({
+            'A': [True, False],
+            'B': [True, False],
+            'C': [False, True]
+        })
+        result = bools_to_categorical(df, allow_duplicates=True)
+        
+        expected_categories = ['A & B', 'C']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[0] == 'A & B'
+
+    def test_allow_duplicates_false_success(self):
+        """Test with allow_duplicates=False when no duplicates exist."""
+        df = pd.DataFrame({
+            'A': [True, False, False],
+            'B': [False, True, False],
+            'C': [False, False, True]
+        })
+        result = bools_to_categorical(df, allow_duplicates=False)
+        
+        expected_categories = ['A', 'B', 'C']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+
+    def test_allow_duplicates_false_failure(self):
+        """Test with allow_duplicates=False when duplicates exist - should raise ValueError."""
+        df = pd.DataFrame({
+            'A': [True, False],
+            'B': [True, False]  # This creates a duplicate True in the first row
+        })
+        
+        with pytest.raises(ValueError) as excinfo:
+            bools_to_categorical(df, allow_duplicates=False)
+        
+        assert "allow_duplicates is False" in str(excinfo.value)
+
+    def test_single_column(self):
+        """Test with single column DataFrame."""
+        df = pd.DataFrame({
+            'OnlyCol': [True, False, True]
+        })
+        result = bools_to_categorical(df)
+        
+        expected_categories = ['OnlyCol', 'None']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[0] == 'OnlyCol'
+        assert result[1] == 'None'
+
+    def test_all_true_columns(self):
+        """Test with all columns True in some rows."""
+        df = pd.DataFrame({
+            'A': [True, True, False],
+            'B': [True, False, True],
+            'C': [True, False, False]
+        })
+        result = bools_to_categorical(df)
+        
+        expected_categories = ['A & B & C', 'A', 'B']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        assert result[0] == 'A & B & C'
+
+    def test_empty_dataframe(self):
+        """Test with empty DataFrame."""
+        df = pd.DataFrame(columns=['A', 'B']).astype(bool)
+        result = bools_to_categorical(df)
+        
+        assert len(result) == 0
+        assert isinstance(result, pd.Series)
+
+    def test_preserve_index(self):
+        """Test that original DataFrame index is preserved."""
+        custom_index = pd.Index(['row1', 'row2', 'row3'], name='custom_idx')
+        df = pd.DataFrame({
+            'A': [True, False, True],
+            'B': [False, True, False]
+        }, index=custom_index)
+        
+        result = bools_to_categorical(df)
+        
+        assert result.index.equals(df.index)
+        assert result.index.name == 'custom_idx'
+
+    def test_identical_rows(self):
+        """Test with identical boolean patterns."""
+        df = pd.DataFrame({
+            'A': [True, True, False, False],
+            'B': [False, False, True, True],
+            'C': [True, True, False, False]
+        })
+        result = bools_to_categorical(df)
+        
+        # Should have only 2 unique categories since rows 0&1 and 2&3 are identical
+        expected_categories = ['A & C', 'B']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+        
+        # Check that identical rows get same category
+        assert result[0] == result[1]  # Both should be 'A & C'
+        assert result[2] == result[3]  # Both should be 'B'
+
+    def test_complex_pattern(self):
+        """Test with a more complex boolean pattern."""
+        df = pd.DataFrame({
+            'Feature1': [True, False, True, False, False],
+            'Feature2': [True, True, False, False, True],
+            'Feature3': [False, True, True, True, False],
+            'Feature4': [False, False, False, True, True]
+        })
+        result = bools_to_categorical(df)
+        
+        assert len(result) == 5
+        assert isinstance(result, pd.Series)
+        
+        # Check that all values are valid categories
+        for val in result:
+            assert val in result.cat.categories
+
+    @pytest.mark.parametrize("sep", [" & ", " | ", " + ", "-"])
+    def test_different_separators(self, sep):
+        """Test with different separator characters."""
+        df = pd.DataFrame({
+            'A': [True, False],
+            'B': [True, False]
+        })
+        result = bools_to_categorical(df, sep=sep)
+        
+        expected_category = f'A{sep}B'
+        assert expected_category in result.cat.categories
+        assert result[0] == expected_category
+
+    @pytest.mark.parametrize("na_rep", ["None", "Missing", "Empty", "N/A"])
+    def test_different_na_representations(self, na_rep):
+        """Test with different NA representation strings."""
+        df = pd.DataFrame({
+            'A': [True, False],
+            'B': [False, False]
+        })
+        result = bools_to_categorical(df, na_rep=na_rep)
+        
+        assert na_rep in result.cat.categories
+        assert result[1] == na_rep
+
+    def test_column_names_with_special_characters(self):
+        """Test with column names containing special characters."""
+        df = pd.DataFrame({
+            'Feature-1': [True, False],
+            'Feature_2': [False, True],
+            'Feature 3': [True, True]
+        })
+        result = bools_to_categorical(df)
+        
+        expected_categories = ['Feature-1 & Feature 3', 'Feature_2 & Feature 3']
+        assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
