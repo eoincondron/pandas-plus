@@ -437,12 +437,58 @@ def convert_array_inputs_to_dict(arrays, temp_name_root: str = "_arr_") -> dict:
 
 
 def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
-    bins = np.array(bins)
+    """
+    Create a categorical with pretty labels by cutting data into bins.
+    
+    Parameters
+    ----------
+    x : ArrayType1D
+        1-D array-like data to be binned. Can be np.ndarray, pd.Series, 
+        pl.Series, pd.Index, or pd.Categorical.
+    bins : ArrayType1D or list
+        Monotonically increasing array of bin edges, defining the intervals.
+        Values will be sorted internally.
+        
+    Returns
+    -------
+    pd.Categorical or pd.Series
+        Categorical with human-readable interval labels. If input `x` is a 
+        pd.Series, returns pd.Series with same index and name; otherwise 
+        returns pd.Categorical.
+        
+    Notes
+    -----
+    The function creates interval labels with the following format:
+    - First bin: " <= {first_bin_edge}"  
+    - Middle bins: "{left_edge + 1} - {right_edge}" for integer data,
+                   "{left_edge} - {right_edge}" for float data
+    - Last bin: " > {last_bin_edge}"
+    
+    For integer data, the left edge is incremented by 1 to create 
+    non-overlapping intervals. NaN values in float arrays are assigned 
+    code -1 (missing category).
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> x = pd.Series([1, 5, 10, 15, 20])
+    >>> bins = [5, 10, 15]
+    >>> result = pretty_cut(x, bins)
+    >>> result.categories
+    Index([' <= 5', '6 - 10', '11 - 15', ' > 15'], dtype='object')
+    """
     bins = np.sort(bins)
-    is_integer = x.dtype.kind in 'ui' and bins.dtype.kind in 'ui'
+    np_type = np.asarray(x).dtype
+    is_integer = np_type.kind in 'ui' and bins.dtype.kind in 'ui'
 
     labels = [f' <= {bins[0]}']
-    labels += [f'{left + is_integer} - {right}' for left, right in zip(bins, bins[1:])]
+    for left, right in zip(bins, bins[1:]):
+        left = left + is_integer
+        if left == right:
+            labels.append(str(left))
+        else:
+            labels.append(f'{left + is_integer} - {right}')
     labels.append(f' > {bins[-1]}')
     codes = bins.searchsorted(x)
     if x.dtype.kind == 'f':
