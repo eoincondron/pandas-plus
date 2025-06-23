@@ -321,6 +321,8 @@ class GroupBy:
             func = getattr(self, agg_func)
             return func(values, mask=mask, transform=transform)
         elif np.ndim(agg_func) == 1:
+            if isinstance(values, ArrayType1D):
+                values = dict.fromkeys(agg_func, values)
             values = convert_array_inputs_to_dict(values)
             if len(agg_func) != len(values):
                 raise ValueError(
