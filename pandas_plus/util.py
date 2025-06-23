@@ -8,7 +8,7 @@ import concurrent.futures
 import numba as nb
 import numpy as np
 import pandas as pd
-# import polars as pl
+import polars as pl
 from numba.core.extending import overload
 
 T = TypeVar("T")
