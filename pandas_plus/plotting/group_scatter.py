@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn import linear_model as lm
 
-from groupby.util import ArrayType1D
+from pandas_plus.util import ArrayType1D
 
 
 @dataclass
@@ -48,6 +48,8 @@ class GroupScatter:
         if null_filter.any():
             self._x = self._x[null_filter]
             self._y = self._y[null_filter]
+        self._calculate_bins()
+        self._calculate_regression()
 
     @cached_property
     def _X(self):
@@ -64,7 +66,7 @@ class GroupScatter:
         - bins: pandas.qcut bins for the x values
         - y_means: mean y value for each bin
         """
-        self.bins = pd.qcut(self._x, q=self.n_groups)
+        self.bins = pd.qcut(self._x, q=self.n_groups, duplicates='drop')
         self.y_means = pd.Series(self._y).groupby(self.bins, observed=True).mean()
 
     def _calculate_regression(self):
