@@ -500,6 +500,37 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
     return out
 
 
+@nb.njit(parallel=True)
+def _nb_dot(a: List[np.ndarray], b: np.ndarray, out: np.ndarray) -> np.ndarray:
+    for row in nb.prange(len(a[0])):
+        for col in nb.prange(len(b)):
+            out[row] += a[col][row] * b[col]
+    return out
+
+
+def nb_dot(a: Union[np.ndarray, pd.DataFrame, pl.DataFrame], b: ArrayType1D):
+    if not len(a):
+        return np.common_type(a.dtype, b.dtype)
+    if isinstance(a, np.ndarray) and a.ndim != 2:
+        raise ValueError("a must be a 2-dimensional array or DataFrame")
+    if a.shape[1] != len(b):
+        raise ValueError(f"shapes {a.shape} and {b.shape} are not aligned. ")
+    if isinstance(a, np.ndarray):
+        arr_list = a.T
+    else:
+        arr_list = [np.asarray(a[col]) for col in a.columns]
+    # TODO: what about mixed types here? Could be wrong for a mix of floats and ints
+    return_type = (arr_list[0][0] * b[0]).dtype
+    out = _nb_dot(
+        arr_list,
+        np.asarray(b),
+        out=np.zeros(len(a), dtype=return_type)
+    )
+    if isinstance(a, pd.DataFrame):
+        out = pd.Series(out, a.index)
+    return out
+
+
 def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allow_duplicates=True):
     """
     Convert a boolean DataFrame to a categorical Series with combined labels.
@@ -572,7 +603,7 @@ def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allo
     if na_rep in df:
         raise ValueError(f"na_rep={na_rep} clashes with one of the column names")
     min_bits = min([x for x in [8, 16, 32, 64] if x > df.shape[1]])
-    bit_mask = np.dot(df.values, 2 ** np.arange(df.shape[1], dtype=f'int{min_bits}'))
+    bit_mask = nb_dot(df, 2 ** np.arange(df.shape[1], dtype=f'int{min_bits}'))
     uniques, codes = np.unique(bit_mask, return_inverse=True)
 
     cats = []

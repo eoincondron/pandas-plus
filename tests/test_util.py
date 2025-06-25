@@ -7,7 +7,7 @@ import pytest
 
 from pandas_plus.util import (
     MAX_INT, MIN_INT, _get_first_non_null, _null_value_for_array_type,
-    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut, bools_to_categorical
+    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut, bools_to_categorical, nb_dot
 )
 
 
@@ -742,3 +742,190 @@ class TestBoolsToCategorical:
         
         expected_categories = ['Feature-1 & Feature 3', 'Feature_2 & Feature 3']
         assert sorted(result.cat.categories.tolist()) == sorted(expected_categories)
+
+
+class TestNbDot:
+    """Test cases for the nb_dot function."""
+
+    def test_numpy_array_basic(self):
+        """Test nb_dot with basic numpy arrays."""
+        a = np.array([[1, 2, 3], [4, 5, 6]]).T
+        b = np.array([1, 2])
+        result = nb_dot(a, b)
+        
+        expected = np.array([9, 12, 15])  # [1*1 + 4*2, 2*1 + 5*2, 3*1 + 6*2]
+        np.testing.assert_array_equal(result, expected)
+        assert isinstance(result, np.ndarray)
+
+    def test_numpy_array_float(self):
+        """Test nb_dot with float numpy arrays."""
+        a = np.array([[1.5, 2.5], [3.5, 4.5], [5.5, 6.5]])
+        b = np.array([2.0, 3.0])
+        result = nb_dot(a, b)
+        
+        expected = np.dot(a, b)
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_pandas_dataframe_basic(self):
+        """Test nb_dot with pandas DataFrame."""
+        df = pd.DataFrame({'col1': [1, 2, 3], 'col2': [4, 5, 6]})
+        b = np.array([1, 2])
+        result = nb_dot(df, b)
+        
+        expected = pd.Series([9, 12, 15], index=df.index)  # [1*1 + 4*2, 2*1 + 5*2, 3*1 + 6*2]
+        pd.testing.assert_series_equal(result, expected)
+        assert isinstance(result, pd.Series)
+
+    def test_pandas_dataframe_with_index(self):
+        """Test nb_dot with pandas DataFrame with custom index."""
+        custom_index = pd.Index(['a', 'b', 'c'], name='test_idx')
+        df = pd.DataFrame({'x': [1, 2, 3], 'y': [4, 5, 6]}, index=custom_index)
+        b = np.array([2, 3])
+        result = nb_dot(df, b)
+        
+        expected = pd.Series([14, 19, 24], index=custom_index)  # [1*2 + 4*3, 2*2 + 5*3, 3*2 + 6*3]
+        pd.testing.assert_series_equal(result, expected)
+        assert result.index.equals(df.index)
+
+    def test_polars_dataframe_basic(self):
+        """Test nb_dot with polars DataFrame."""
+        df = pl.DataFrame({'col1': [1, 2, 3], 'col2': [4, 5, 6]})
+        b = np.array([1, 2])
+        result = nb_dot(df, b)
+        
+        expected = np.array([9, 12, 15])  # [1*1 + 4*2, 2*1 + 5*2, 3*1 + 6*2]
+        np.testing.assert_array_equal(result, expected)
+        assert isinstance(result, np.ndarray)
+
+    def test_single_column(self):
+        """Test nb_dot with single column input."""
+        a = np.array([[1], [2], [3]])
+        b = np.array([5])
+        result = nb_dot(a, b)
+        
+        expected = np.array([5, 10, 15])  # [1*5, 2*5, 3*5]
+        np.testing.assert_array_equal(result, expected)
+
+    def test_single_row(self):
+        """Test nb_dot with single row input."""
+        a = np.array([[1, 2, 3, 4]])
+        b = np.array([1, 2, 3, 4])
+        result = nb_dot(a, b)
+        
+        expected = np.array([30])  # [1*1 + 2*2 + 3*3 + 4*4]
+        np.testing.assert_array_equal(result, expected)
+
+    def test_zeros(self):
+        """Test nb_dot with zero arrays."""
+        a = np.zeros((3, 2))
+        b = np.array([1, 2])
+        result = nb_dot(a, b)
+        
+        expected = np.zeros(3)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_negative_values(self):
+        """Test nb_dot with negative values."""
+        a = np.array([[-1, 2], [3, -4], [-5, -6]])
+        b = np.array([2, -1])
+        result = nb_dot(a, b)
+        
+        expected = np.array([-4, 10, -4])  # [-1*2 + 3*(-1), 2*2 + (-4)*(-1), -5*2 + (-6)*(-1)]
+        np.testing.assert_array_equal(result, expected)
+
+    def test_large_arrays(self):
+        """Test nb_dot with larger arrays."""
+        np.random.seed(42)
+        a = np.random.randint(0, 10, size=(100, 50))
+        b = np.random.randint(0, 10, size=50)
+        result = nb_dot(a, b)
+        
+        # Compare with numpy's built-in dot product
+        expected = np.dot(a, b)
+        np.testing.assert_array_equal(result, expected)
+        assert len(result) == 100
+
+    def test_error_1d_array(self):
+        """Test nb_dot raises ValueError for 1D array."""
+        a = np.array([1, 2, 3])  # 1D array
+        b = np.array([1, 2, 3])
+        
+        with pytest.raises(ValueError, match="a must be a 2-dimensional array or DataFrame"):
+            nb_dot(a, b)
+
+    def test_error_3d_array(self):
+        """Test nb_dot raises ValueError for 3D array."""
+        a = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])  # 3D array
+        b = np.array([1, 2])
+        
+        with pytest.raises(ValueError, match="a must be a 2-dimensional array or DataFrame"):
+            nb_dot(a, b)
+
+    def test_error_shape_mismatch(self):
+        """Test nb_dot raises ValueError for mismatched shapes."""
+        a = np.array([[1, 2, 3], [4, 5, 6]])  # shape (2, 3)
+        b = np.array([1, 2])  # shape (2,) - mismatch with a.shape[1]=3
+        
+        with pytest.raises(ValueError, match="shapes .* are not aligned"):
+            nb_dot(a, b)
+
+    def test_pandas_series_input_b(self):
+        """Test nb_dot with pandas Series as b parameter."""
+        a = np.array([[1, 2], [3, 4]])
+        b = pd.Series([2, 3])
+        result = nb_dot(a, b)
+        
+        expected = np.array([8, 18])  # [1*2 + 2*3, 3*2 + 4*3]
+        np.testing.assert_array_equal(result, expected)
+
+    def test_polars_series_input_b(self):
+        """Test nb_dot with polars Series as b parameter."""
+        a = np.array([[1, 2], [3, 4]])
+        b = pl.Series([2, 3])
+        result = nb_dot(a, b)
+        
+        expected = np.array([8, 18])  # [1*2 + 2*3, 3*2 + 4*3]
+        np.testing.assert_array_equal(result, expected)
+
+    def test_mixed_dtypes(self):
+        """Test nb_dot with mixed integer and float dtypes."""
+        a = np.array([[1, 2.5], [3.5, 4]], dtype=float)
+        b = np.array([2, 3], dtype=int)
+        result = nb_dot(a, b)
+        
+        expected = np.array([9.5, 19.0])  # [1*2 + 2.5*3, 3.5*2 + 4*3]
+        np.testing.assert_array_almost_equal(result, expected)
+
+    @pytest.mark.parametrize("array_type", [np.array, pd.DataFrame, pl.DataFrame])
+    def test_different_input_types(self, array_type):
+        """Test nb_dot with different input array types."""
+        if array_type == pd.DataFrame:
+            a = array_type({'col1': [1, 2], 'col2': [3, 4]})
+        elif array_type == pl.DataFrame:
+            a = array_type({'col1': [1, 2], 'col2': [3, 4]})
+        else:  # numpy
+            a = array_type([[1, 3], [2, 4]])
+        
+        b = np.array([2, 1])
+        result = nb_dot(a, b)
+        
+        expected_values = np.dot(a, b)  # [1*2 + 3*1, 2*2 + 4*1]
+        
+        if isinstance(a, pd.DataFrame):
+            assert isinstance(result, pd.Series)
+            np.testing.assert_array_equal(result.values, expected_values)
+        else:
+            assert isinstance(result, np.ndarray)
+            np.testing.assert_array_equal(result, expected_values)
+
+    @pytest.mark.parametrize("length", [10**3, 10**6, 10**7])
+    def test_consistency_with_numpy_dot(self, length):
+        """Test that nb_dot produces same results as numpy.dot."""
+        np.random.seed(123)
+        a = np.random.randn(length, 5)
+        b = np.random.randn(5)
+        
+        result = nb_dot(a, b)
+        expected = np.dot(a, b)
+        
+        np.testing.assert_array_almost_equal(result, expected)
