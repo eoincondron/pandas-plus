@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .numba import group_count, group_max, group_mean, group_min, group_sum, group_nearby_members
+from .numba import group_size, group_count, group_max, group_mean, group_min, group_sum, group_nearby_members
 from ..util import (ArrayType1D, ArrayType2D, TempName, factorize_1d, factorize_2d,
-                   convert_array_inputs_to_dict, get_array_name)
+                   convert_data_to_arr_list_and_keys, get_array_name)
 
 ArrayCollection = (
     ArrayType1D | ArrayType2D | Sequence[ArrayType1D] | Mapping[str, ArrayType1D]
@@ -181,22 +181,17 @@ class GroupBy:
     """
 
     def __init__(self, group_keys: ArrayCollection):
-        group_key_dict = convert_array_inputs_to_dict(group_keys)
-        indexes = _get_indexes_from_values(group_key_dict)
+        group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
+        indexes = _get_indexes_from_values(group_key_list)
         common_index = _validate_input_indexes(indexes)
-        if common_index is not None:
-            group_key_dict = {
-                key: s.set_axis(common_index, axis=0, copy=False)
-                for key, s in group_key_dict.items()
-            }
         
-        if len(group_key_dict) == 1:
-            self._group_ikey, self._result_index = factorize_1d(group_key_dict.popitem()[1])
+        if len(group_key_list) == 1:
+            self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
         else:
-            self._group_ikey, self._result_index = factorize_2d(*group_key_dict.values())
+            self._group_ikey, self._result_index = factorize_2d(*group_key_list)
 
-        self.key_names = [
-            None if isinstance(key, TempName) else key for key in group_key_dict
+        self._result_index.names = [
+            None if isinstance(key, TempName) else key for key in group_key_names
         ]
 
     @property
@@ -273,10 +268,16 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Results of the groupby operation
         """
-        value_dict = convert_array_inputs_to_dict(values)
-        np_values = list(map(val_to_numpy, value_dict.values()))
+        value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        if len(set(value_names)) != len(value_names):
+            raise ValueError(
+                "Values must have unique names. "
+                f"Found duplicates: {set(value_names)}"
+            )
 
-        indexes = _get_indexes_from_values(value_dict)
+        np_values = list(map(val_to_numpy, value_list))
+
+        indexes = _get_indexes_from_values(value_list)
         common_index = _validate_input_indexes(indexes)
 
         results = map(
@@ -286,7 +287,7 @@ class GroupBy:
             np_values,
         )
         out_dict = {}
-        for key, result in zip(value_dict, results):
+        for key, result in zip(value_names, results):
             if transform:
                 result = out_dict[key] = pd.Series(
                     result[self.group_ikey], common_index
@@ -294,7 +295,7 @@ class GroupBy:
             else:
                 result = out_dict[key] = pd.Series(result[:-1], self.result_index)
 
-            return_1d = len(value_dict) == 1 and isinstance(values, ArrayType1D)
+            return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
             if return_1d:
                 out = result
                 if get_array_name(values) is None:
@@ -365,8 +366,8 @@ class GroupBy:
         elif np.ndim(agg_func) == 1:
             if isinstance(values, ArrayType1D):
                 values = dict.fromkeys(agg_func, values)
-            values = convert_array_inputs_to_dict(values)
-            if len(agg_func) != len(values):
+            value_list, value_names = convert_data_to_arr_list_and_keys(values)
+            if len(agg_func) != len(value_list):
                 raise ValueError(
                     f"Mismatch between number of agg funcs ({len(agg_func)}) "
                     f"and number of values ({len(values)})"
@@ -374,7 +375,7 @@ class GroupBy:
             return pd.DataFrame(
                 {k:
                     self.agg(v, agg_func=f, mask=mask, transform=transform)
-                    for f, (k, v) in zip(agg_func, values.items())
+                    for f, (k, v) in zip(agg_func, zip(value_names, value_list))
                  },
             )
         else:

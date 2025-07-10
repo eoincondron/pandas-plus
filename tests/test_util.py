@@ -7,7 +7,7 @@ import pytest
 
 from pandas_plus.util import (
     MAX_INT, MIN_INT, _get_first_non_null, _null_value_for_array_type,
-    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut, bools_to_categorical, nb_dot,
+    convert_data_to_arr_list_and_keys, get_array_name, is_null, pretty_cut, bools_to_categorical, nb_dot,
     factorize_1d, factorize_2d
 )
 
@@ -46,15 +46,15 @@ class TestArrayFunctions:
     def test_convert_mapping_to_dict(self):
         # Test with dictionary
         input_dict = {"a": np.array([1, 2]), "b": np.array([3, 4])}
-        result = convert_array_inputs_to_dict(input_dict)
-        assert result == input_dict
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(input_dict)
+        assert dict(zip(result_names, result_arrs)) == input_dict
 
         # Test with other mapping types
         from collections import OrderedDict
 
         ordered_dict = OrderedDict([("x", np.array([1, 2])), ("y", np.array([3, 4]))])
-        result = convert_array_inputs_to_dict(ordered_dict)
-        assert result == dict(ordered_dict)
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(ordered_dict)
+        assert dict(zip(result_names, result_arrs)) == ordered_dict
 
     def test_convert_list_to_dict(self):
         # Test with list of named arrays
@@ -62,22 +62,22 @@ class TestArrayFunctions:
             pd.Series([1, 2, 3], name="first"),
             pd.Series([4, 5, 6], name="second"),
         ]
-        expected = {"first": arrays[0], "second": arrays[1]}
-        result = convert_array_inputs_to_dict(arrays)
-        assert result.keys() == expected.keys()
-        for k in expected:
-            pd.testing.assert_series_equal(result[k], expected[k])
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(arrays)
+        assert result_names == ["first", "second"]
+        for left, right in zip(result_arrs, arrays):
+            pd.testing.assert_series_equal(left, right)
 
         # Test with list of unnamed arrays
         arrays = [
             np.array([1, 2, 3]),
             np.array([4, 5, 6]),
         ]
-        expected = {"_arr_0": arrays[0], "_arr_1": arrays[1]}
-        result = convert_array_inputs_to_dict(arrays)
-        assert result.keys() == expected.keys()
-        for k in expected:
-            np.testing.assert_array_equal(result[k], expected[k])
+
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(arrays)
+        assert result_names == ["_arr_0", "_arr_1"]
+
+        for left, right in zip(result_arrs, arrays):
+            np.testing.assert_array_equal(left, right)
 
         # Test with mixed named and unnamed arrays
         arrays = [
@@ -85,68 +85,70 @@ class TestArrayFunctions:
             np.array([4, 5, 6]),
             pd.Series([7, 8, 9]),
         ]
-        expected = {"named": arrays[0], "_arr_1": arrays[1], "_arr_2": arrays[2]}
-        result = convert_array_inputs_to_dict(arrays)
-        assert result.keys() == expected.keys()
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(arrays)
+        for left, right in zip(result_arrs, arrays):
+            if isinstance(right, pd.Series):
+                pd.testing.assert_series_equal(left, right)
+            else:
+                np.testing.assert_array_equal(left, right)
 
     def test_convert_numpy_array_to_dict(self):
         # Test with 1D numpy array
         arr = np.array([1, 2, 3])
-        result = convert_array_inputs_to_dict(arr)
-        assert len(result) == 1
-        assert "_arr_0" in result
-        np.testing.assert_array_equal(result["_arr_0"], arr)
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(arr)
+
+        assert ["_arr_0"] == result_names
+        np.testing.assert_array_equal(result_arrs[0], arr)
 
         # Test with 2D numpy array (should return empty dict as per function logic)
         arr_2d = np.array([[1, 2], [3, 4]])
-        result = convert_array_inputs_to_dict(arr_2d)
-        assert list(result) == ["_arr_0", "_arr_1"]
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(arr_2d)
+        assert result_names == ["_arr_0", "_arr_1"]
 
-        np.testing.assert_array_equal(result["_arr_0"], arr_2d[:, 0])
+        for i in range(2):
+            np.testing.assert_array_equal(result_arrs[i], arr_2d[:, i])
 
     def test_convert_series_to_dict(self):
         # Test with named pandas Series
         series = pd.Series([1, 2, 3], name="test_series")
-        result = convert_array_inputs_to_dict(series)
-        assert len(result) == 1
-        assert "test_series" in result
-        pd.testing.assert_series_equal(result["test_series"], series)
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(series)
+        
+        assert result_names == ["test_series"]
+        pd.testing.assert_series_equal(result_arrs[0], series)
 
         # Test with unnamed pandas Series
         series = pd.Series([1, 2, 3])
-        result = convert_array_inputs_to_dict(series)
-        assert len(result) == 1
-        assert "_arr_0" in result
-        pd.testing.assert_series_equal(result["_arr_0"], series)
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(series)
+        assert ["_arr_0"] == result_names
+        pd.testing.assert_series_equal(result_arrs[0], series)
 
         # Test with polars Series
         series = pl.Series("polars_series", [1, 2, 3])
-        result = convert_array_inputs_to_dict(series)
-        assert len(result) == 1
-        assert "polars_series" in result
-        pl.testing.assert_series_equal(result["polars_series"], series)
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(series)
+        assert ["polars_series"] == result_names
+        pl.testing.assert_series_equal(result_arrs[0], series)
 
     def test_convert_dataframe_to_dict(self):
         # Test with pandas DataFrame
         df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
-        result = convert_array_inputs_to_dict(df)
-        assert len(result) == 2
-        assert "a" in result and "b" in result
-        pd.testing.assert_series_equal(result["a"], df["a"])
-        pd.testing.assert_series_equal(result["b"], df["b"])
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(df)
 
+        assert len(result_arrs) == 2
+        assert result_names == ["a", "b"]
+        for i, col in enumerate(df.columns):
+            pd.testing.assert_series_equal(result_arrs[i], df[col])
+        
         # Test with polars DataFrame
         df = pl.DataFrame({"x": [1, 2], "y": [3, 4]})
-        result = convert_array_inputs_to_dict(df)
-        assert len(result) == 2
-        assert "x" in result and "y" in result
-        pl.testing.assert_series_equal(result["x"], df["x"])
-        pl.testing.assert_series_equal(result["y"], df["y"])
-
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(df)
+        assert result_names == ["x", "y"]
+        for i, col in enumerate(df.columns):
+            pl.testing.assert_series_equal(result_arrs[i], df[col])
+        
     def test_unsupported_type(self):
         # Test with unsupported type
         with pytest.raises(TypeError, match="Input type <class 'int'> not supported"):
-            convert_array_inputs_to_dict(123)
+            convert_data_to_arr_list_and_keys(123)
 
 
 class TestIsNullFunction:

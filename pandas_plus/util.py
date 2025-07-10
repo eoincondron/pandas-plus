@@ -2,7 +2,7 @@ from functools import reduce, wraps
 import operator
 import os
 from inspect import signature
-from typing import Mapping, Union, Any, Callable, TypeVar, cast, List, Optional
+from typing import Mapping, Union, Any, Callable, TypeVar, cast, List, Optional, Tuple
 import concurrent.futures
 
 import numba as nb
@@ -394,7 +394,7 @@ def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
 class TempName(str): ...
 
 
-def convert_array_inputs_to_dict(arrays, temp_name_root: str = "_arr_") -> dict:
+def convert_data_to_arr_list_and_keys(arrays, temp_name_root: str = "_arr_") -> Tuple[List[np.ndarray], List[str]]:
     """
     Convert various array-like inputs to a dictionary of named arrays.
 
@@ -417,22 +417,25 @@ def convert_array_inputs_to_dict(arrays, temp_name_root: str = "_arr_") -> dict:
         If the input type is not supported
     """
     if isinstance(arrays, Mapping):
-        return dict(arrays)
+        array = dict(arrays)
+        return list(array.values()), list(array.keys())
     elif isinstance(arrays, (tuple, list)):
         names = map(get_array_name, arrays)
         keys = [
             name or TempName(f"{temp_name_root}{i}") for i, name in enumerate(names)
         ]
-        return dict(zip(keys, arrays))  # Fixed: arrays instead of array
+        return list(arrays), keys
     elif isinstance(arrays, np.ndarray) and arrays.ndim == 2:
-        return convert_array_inputs_to_dict(list(arrays.T))
+        return convert_data_to_arr_list_and_keys(list(arrays.T))
     elif isinstance(
             arrays, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)
     ):
         name = get_array_name(arrays)
-        return {name if name is not None else TempName(f"{temp_name_root}0"): arrays}
+        if name is None:
+            name = TempName(f"{temp_name_root}0")
+        return [arrays], [name]
     elif isinstance(arrays, (pl.DataFrame, pd.DataFrame)):
-        return {key: arrays[key] for key in arrays.columns}
+        return [arrays[key] for key in arrays.columns], list(arrays.columns)
     else:
         raise TypeError(f"Input type {type(arrays)} not supported")
 
