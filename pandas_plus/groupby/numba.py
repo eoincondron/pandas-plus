@@ -170,7 +170,40 @@ def group_count(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    initial_value = 0
+    """ Count the number of non-null values in each group.
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        The array defining the groups.       
+    values : ArrayType1D
+        The array of values to count.
+    ngroups : int
+        The number of unique groups in `group_key`.
+    mask : Optional[ArrayType1D], default None
+        A mask array to filter the values. If provided, only non-null values where the mask                 
+        is True will be counted.
+    n_threads : int, default 1  
+        The number of threads to use for parallel processing. If set to 1, the function will run in a single thread.
+    Returns
+    -------
+    ArrayType1D
+        An array of counts for each group, where the index corresponds to the group key.
+    Notes
+    -----
+    This function counts the number of non-null values in each group defined by `group_key`.
+    If a mask is provided, it will only count the values where the mask is True.
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pandas_plus.groupby.numba import group_count
+    >>> group_key = np.array([0, 1, 0, 1, 2, 2])
+    >>> values = np.array([1, 2, np.nan, 3, 4, np.nan, 5])
+    >>> ngroups = 3
+    >>> counts = group_count(group_key, values, ngroups)
+    >>> print(counts)      
+    [2 2 1]
+    """             
+    initial_value = 0   
     return _group_func_wrap("count", **locals())
 
 
