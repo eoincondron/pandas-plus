@@ -51,12 +51,41 @@ def val_to_numpy(val: ArrayType1D):
         NumPy array representation of the input
     """
     try:
-        return val.to_numpy()
+        return val.to_numpy() # type: ignore
     except AttributeError:
         return np.asarray(val)
+    
+
+def _get_indexes_from_values(values: ArrayCollection) -> List[pd.Index]:
+    """
+    Extract pandas Index objects from the provided values.
+    
+    Parameters
+    ----------
+    values : ArrayCollection
+        Collection of arrays or Series to extract indexes from
+        
+    Returns
+    -------
+    List[pd.Index]
+        List of pandas Index objects corresponding to each value in the collection
+    """
+    if isinstance(values, (pd.Series, pd.DataFrame)):
+        out = [values.index]
+    elif isinstance(values, pl.Series):
+        out = []
+    elif isinstance(values, (list, tuple)):
+        out = [getattr(v, 'index', None) for v in values]
+    elif isinstance(values, Mapping):
+        return _get_indexes_from_values(list(values.values()))
+    elif isinstance(values, np.ndarray):
+        out = []
+    else:
+        return []
+    return [index for index in out if index is not None]
 
 
-def _validate_input_indexes(indexes):
+def _validate_input_indexes(indexes: List[pd.Index]) -> Optional[pd.Index]:
     """
     Validate that all provided pandas indexes are compatible.
     
@@ -153,10 +182,7 @@ class GroupBy:
 
     def __init__(self, group_keys: ArrayCollection):
         group_key_dict = convert_array_inputs_to_dict(group_keys)
-        group_key_dict = {
-            key: array_to_series(val) for key, val in group_key_dict.items()
-        }
-        indexes = [s.index for s in group_key_dict.values()]
+        indexes = _get_indexes_from_values(group_key_dict)
         common_index = _validate_input_indexes(indexes)
         if common_index is not None:
             group_key_dict = {
@@ -237,6 +263,10 @@ class GroupBy:
         """
         value_dict = convert_array_inputs_to_dict(values)
         np_values = list(map(val_to_numpy, value_dict.values()))
+
+        indexes = _get_indexes_from_values(value_dict)
+        common_index = _validate_input_indexes(indexes)
+
         results = map(
             lambda v: func(
                 group_key=self.group_ikey, values=v, mask=mask, ngroups=self.ngroups
@@ -247,7 +277,7 @@ class GroupBy:
         for key, result in zip(value_dict, results):
             if transform:
                 result = out_dict[key] = pd.Series(
-                    result[self.group_ikey], self._group_df.index
+                    result[self.group_ikey], common_index
                 )
             else:
                 result = out_dict[key] = pd.Series(result, self.result_index)
