@@ -8,7 +8,7 @@ import pandas as pd
 import polars as pl
 
 from .numba import group_count, group_max, group_mean, group_min, group_sum, group_nearby_members
-from ..util import (ArrayType1D, ArrayType2D, TempName,
+from ..util import (ArrayType1D, ArrayType2D, TempName, factorize_1d, factorize_2d,
                    convert_array_inputs_to_dict, get_array_name)
 
 ArrayCollection = (
@@ -163,11 +163,12 @@ class GroupBy:
                 key: s.set_axis(common_index, axis=0, copy=False)
                 for key, s in group_key_dict.items()
             }
+        
+        if len(group_key_dict) == 1:
+            self._group_ikey, self._result_index = factorize_1d(group_key_dict.popitem()[1])
+        else:
+            self._group_ikey, self._result_index = factorize_2d(*group_key_dict.values())
 
-        self._group_df = pd.DataFrame(group_key_dict, copy=False)
-        self._grouper = self._group_df.groupby(
-            list(group_key_dict), observed=True
-        )._grouper
         self.key_names = [
             None if isinstance(key, TempName) else key for key in group_key_dict
         ]
@@ -182,9 +183,9 @@ class GroupBy:
         int
             Number of distinct groups
         """
-        return self._grouper.ngroups
+        return len(self.result_index)
 
-    @cached_property
+    @property
     def result_index(self):
         """
         Index for the result of group-by operations.
@@ -194,11 +195,9 @@ class GroupBy:
         pd.Index
             Index with one level per group key
         """
-        index = self._grouper.result_index
-        index.names = self.key_names
-        return index
+        return self._result_index
 
-    @cached_property
+    @property
     def group_ikey(self):
         """
         Integer key for each original row identifying its group.
@@ -208,7 +207,7 @@ class GroupBy:
         ndarray
             Array of group indices for each original row
         """
-        return self._grouper.group_info[0]
+        return self._group_ikey
 
     def _apply_gb_func(
         self,
