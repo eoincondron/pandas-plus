@@ -174,7 +174,6 @@ def group_count(
     return _group_func_wrap("count", **locals())
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
 def group_sum(
     group_key: ArrayType1D,
     values: ArrayType1D,
@@ -189,7 +188,6 @@ def group_sum(
     return _group_func_wrap("sum", **locals())
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
 def group_mean(
     group_key: ArrayType1D,
     values: ArrayType1D,
@@ -207,7 +205,6 @@ def group_mean(
     return mean
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
 def group_min(
     group_key: ArrayType1D,
     values: ArrayType1D,
@@ -218,7 +215,6 @@ def group_min(
     return _group_func_wrap("min", **locals())
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
 def group_max(
     group_key: ArrayType1D,
     values: ArrayType1D,
