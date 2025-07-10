@@ -128,8 +128,6 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
         chunks = output_converter(chunks)
         result = reduce_1d(chunk_reduction, chunks, skipna=skipna, n_threads=1)
 
-    return result
-
     if is_count:
         result = np.int64(result)
 
