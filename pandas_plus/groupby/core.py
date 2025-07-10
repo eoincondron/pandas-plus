@@ -234,6 +234,18 @@ class GroupBy:
             Array of group indices for each original row
         """
         return self._group_ikey
+    
+    @cached_property
+    def has_null_keys(self) -> bool:
+        """
+        Check if the group keys contain any null values.
+        
+        Returns
+        -------
+        bool
+            True if any group key contains null values, False otherwise
+        """
+        return self.group_ikey.min() < 0
 
     def _apply_gb_func(
         self,
@@ -269,7 +281,7 @@ class GroupBy:
 
         results = map(
             lambda v: func(
-                group_key=self.group_ikey, values=v, mask=mask, ngroups=self.ngroups
+                group_key=self.group_ikey, values=v, mask=mask, ngroups=self.ngroups + 1
             ),
             np_values,
         )
@@ -280,7 +292,7 @@ class GroupBy:
                     result[self.group_ikey], common_index
                 )
             else:
-                result = out_dict[key] = pd.Series(result, self.result_index)
+                result = out_dict[key] = pd.Series(result[:-1], self.result_index)
 
             return_1d = len(value_dict) == 1 and isinstance(values, ArrayType1D)
             if return_1d:
@@ -291,8 +303,8 @@ class GroupBy:
                 out = pd.DataFrame(out_dict)
 
         if not transform and mask is not None:
-            count = self.sum(values=mask)
-            out = out.loc[count > 0]
+            observed = self.sum(values=mask)
+            out = out.loc[observed > 0]
 
         return out
     

@@ -163,3 +163,21 @@ class TestGroupBy:
         result = GroupBy.agg(key, values, agg_func=['mean', 'sum'], mask=mask)
         expected = pd.DataFrame(values)[pd_mask].groupby(key[pd_mask]).agg({'b': 'mean', 'a': 'sum'})
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("categorical", [False, True])
+    def test_null_keys(self, categorical):
+        key = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
+        if categorical:
+            key = key.astype("category")
+        values = pd.Series(np.random.rand(len(key)))
+        key.iloc[1] = np.nan
+        result = GroupBy.sum(key, values)
+        expected = values.groupby(key, observed=True).sum()
+        assert(result == expected).all()
+
+        # Test with mask
+        mask = key != 1
+        result_masked = GroupBy.sum(key, values, mask=mask)
+        expected_masked = values[mask].groupby(key[mask], observed=True).sum()
+        breakpoint()
+        assert(result_masked == expected_masked).all()
