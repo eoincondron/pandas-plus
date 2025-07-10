@@ -438,3 +438,75 @@ class GroupBy:
             max_diff=max_diff,
             n_groups=self.ngroups
         )
+    
+
+def pivot(
+    index: ArrayCollection,
+    columns: ArrayCollection,
+    values: ArrayCollection,
+    agg_func: str = "sum",
+    mask: Optional[ArrayType1D] = None,
+    margins: bool = False,
+):
+    """
+    Perform a cross-tabulation of the group keys and values.
+    
+    Parameters
+    ----------
+    index : ArrayCollection
+        Group keys to use as index in the resulting DataFrame
+    columns : ArrayCollection
+        Group keys to use as columns in the resulting DataFrame
+    values : ArrayCollection
+        Values to cross-tabulate against the group keys
+    agg_func : str, default "sum"
+        Aggregation function to apply to the values. Can be a string like "sum", "mean", "min", "max", etc.
+    mask : Optional[ArrayType1D], default None
+        Boolean mask to filter values before cross-tabulation
+    margin : bool, default False
+        If True, adds a total row and column to the resulting DataFrame
+    Returns
+    -------
+    pd.DataFrame
+        Cross-tabulated DataFrame with group keys as index and values as columns
+    """
+    if agg_func == 'mean':
+        kwargs = locals().copy()
+        del kwargs['agg_func']
+        return pivot(**kwargs, agg_func="sum") / pivot(**kwargs, agg_func='size')
+    
+    index, index_names = convert_data_to_arr_list_and_keys(index)
+    columns, index_columns = convert_data_to_arr_list_and_keys(columns)
+    
+    grouper = GroupBy(index + columns)
+    if agg_func == "size":
+        out = grouper.size(mask=mask)
+    else:
+        out = grouper.agg(
+            values=values,
+            agg_func=agg_func,
+            mask=mask,
+        )
+
+    out = out.unstack(level=list(range(len(index), len(index) + len(columns))), fill_value=0)
+    if margins:
+        margin_func = "sum" if agg_func in ("count", "size") else agg_func
+        out = out.assign(Total=out.agg(margin_func, axis=1))
+        out.loc['Total'] = out.agg(margin_func, axis=0)
+    return out  
+
+
+def crosstab(    
+    index: ArrayCollection,
+    columns: ArrayCollection,
+    mask: Optional[ArrayType1D] = None,
+    margins: bool = False,
+):
+    """
+    Alias for pivot function.
+    
+    Parameters and returns are the same as for pivot.
+    """
+    return pivot(
+        index=index, columns=columns, values=None, agg_func="size", mask=mask, margins=margins
+    )
