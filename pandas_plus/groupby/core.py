@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
-from typing import Callable, List
+from typing import Callable, List, Optional
 from inspect import signature
 
 import numpy as np
@@ -12,7 +12,7 @@ from ..util import (ArrayType1D, ArrayType2D, TempName,
                    convert_array_inputs_to_dict, get_array_name)
 
 ArrayCollection = (
-    ArrayType1D | ArrayType2D | Sequence[ArrayType1D] | Mapping[ArrayType1D]
+    ArrayType1D | ArrayType2D | Sequence[ArrayType1D] | Mapping[str, ArrayType1D]
 )
 
 
@@ -214,7 +214,7 @@ class GroupBy:
         self,
         func: Callable,
         values: ArrayCollection,
-        mask: ArrayType1D = None,
+        mask: Optional[ArrayType1D] = None,
         transform: bool = False,
     ):
         """
@@ -266,10 +266,11 @@ class GroupBy:
             out = out.loc[count > 0]
 
         return out
+    
 
     @groupby_method
     def count(
-        self, values: ArrayCollection, mask: ArrayType1D = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
     ):
         return self._apply_gb_func(
             group_count, values=values, mask=mask, transform=transform
@@ -277,7 +278,7 @@ class GroupBy:
 
     @groupby_method
     def sum(
-        self, values: ArrayCollection, mask: ArrayType1D = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
     ):
         return self._apply_gb_func(
             group_sum, values=values, mask=mask, transform=transform
@@ -285,7 +286,7 @@ class GroupBy:
 
     @groupby_method
     def mean(
-        self, values: ArrayCollection, mask: ArrayType1D = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
     ):
         return self._apply_gb_func(
             group_mean, values=values, mask=mask, transform=transform
@@ -293,7 +294,7 @@ class GroupBy:
 
     @groupby_method
     def min(
-        self, values: ArrayCollection, mask: ArrayType1D = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
     ):
         return self._apply_gb_func(
             group_min, values=values, mask=mask, transform=transform
@@ -301,7 +302,7 @@ class GroupBy:
 
     @groupby_method
     def max(
-        self, values: ArrayCollection, mask: ArrayType1D = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
     ):
         return self._apply_gb_func(
             group_max, values=values, mask=mask, transform=transform
@@ -311,8 +312,8 @@ class GroupBy:
     def agg(
         self,
         values: ArrayCollection,
-        agg_func: str | List[str],
-        mask: ArrayType1D = None,
+        agg_func: Callable | str | List[str],
+        mask: Optional[ArrayType1D] = None,
         transform: bool = False,
     ):
         if np.ndim(agg_func) == 0:
@@ -343,7 +344,7 @@ class GroupBy:
         self,
         values1: ArrayCollection,
         values2: ArrayCollection,
-        mask: ArrayType1D = None,
+        mask: Optional[ArrayType1D] = None,
         agg_func="sum",
     ):
         # check for nullity
@@ -354,7 +355,7 @@ class GroupBy:
             self,
             values: ArrayCollection,
             subset_mask: ArrayType1D,
-            global_mask: ArrayType1D = None,
+            global_mask: Optional[ArrayType1D] = None,
             agg_func="sum",
     ):
         # check for nullity

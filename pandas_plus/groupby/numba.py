@@ -1,6 +1,6 @@
 import inspect
 from inspect import signature
-from typing import Callable
+from typing import Callable, Optional
 from functools import wraps
 from copy import deepcopy
 
@@ -46,6 +46,7 @@ def _prepare_mask_for_numba(mask):
             raise TypeError(f"mask must of Boolean type. Got {mask.dtype}")
     return mask
 
+
 def _default_initial_value_for_type(arr):
     if arr.dtype.kind == 'b':
         return False
@@ -86,8 +87,8 @@ def _group_func_wrap(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    initial_value: int | float = None,
-    mask: ArrayType1D = None,
+    initial_value: Optional[int | float] = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     values = np.asarray(values)
@@ -129,7 +130,7 @@ def group_count(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    mask: ArrayType1D = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     initial_value = 0
@@ -141,7 +142,7 @@ def group_sum(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    mask: ArrayType1D = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     if values.dtype.kind == 'f':
@@ -156,7 +157,7 @@ def group_mean(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    mask: ArrayType1D = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     kwargs = locals().copy()
@@ -174,7 +175,7 @@ def group_min(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    mask: ArrayType1D = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     return _group_func_wrap("min", **locals())
@@ -185,7 +186,7 @@ def group_max(
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    mask: ArrayType1D = None,
+    mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     return _group_func_wrap("max", **locals())
@@ -199,7 +200,7 @@ class NumbaGroupByMethods:
         group_key: ArrayType1D,
         values: ArrayType1D,
         ngroups: int,
-        mask: ArrayType1D = None,
+        mask: Optional[ArrayType1D] = None,
         skip_na=True,
     ):
         if skip_na:
@@ -215,7 +216,7 @@ class NumbaGroupByMethods:
         group_key: ArrayType1D,
         values: ArrayType1D,
         ngroups: int,
-        mask: ArrayType1D = None,
+        mask: Optional[ArrayType1D] = None,
         skip_na=True,
     ):
         if skip_na:
