@@ -99,12 +99,17 @@ def _group_func_wrap(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    values = np.asarray(values)
-    values, orig_type = _maybe_cast_timestamp_arr(values)
-    mask = _prepare_mask_for_numba(mask)
-    if initial_value is None:
-        initial_value = _default_initial_value_for_type(values)
+    if values is None:
+        values = np.array([])
+        initial_value = 0
+    else:
+        values = np.asarray(values)
+        values, orig_type = _maybe_cast_timestamp_arr(values)
+        if initial_value is None:
+            initial_value = _default_initial_value_for_type(values)
+
     target = np.full(ngroups, initial_value)
+    mask = _prepare_mask_for_numba(mask)
 
     kwargs = dict(
         group_key=group_key,
@@ -160,7 +165,7 @@ def group_size(
     ArrayType1D
         An array with the count of elements in each group.
     """
-    return _group_func_wrap('count', values=np.array([]), **locals())
+    return _group_func_wrap('count', values=None, **locals())
 
 
 def group_count(

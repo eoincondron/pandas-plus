@@ -308,7 +308,22 @@ class GroupBy:
             out = out.loc[observed > 0]
 
         return out
-    
+
+    @groupby_method
+    def size(
+        self, mask: Optional[ArrayType1D] = None, transform: bool = False
+    ):
+        out = group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1)
+        if transform:
+            return out[self.group_ikey]
+        
+        out = pd.Series(out[:-1], index=self.result_index, name="size")
+
+        if mask is not None:
+            observed = self.sum(values=mask)
+            out = out.loc[observed > 0]
+
+        return out
 
     @groupby_method
     def count(
