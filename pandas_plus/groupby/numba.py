@@ -21,6 +21,14 @@ def _group_by_iterator(
     reduce_func: Callable,
     must_see: bool = True,
 ):
+    if len(values) == 0:
+        for i in range(len(group_key)):
+            key = group_key[i]
+            if len(mask) and not mask[i]:
+                continue
+            target[key] += 1
+        return target
+    
     seen = np.full(len(target), not must_see)
     for i in range(len(group_key)):
         key = group_key[i]
@@ -124,6 +132,35 @@ def _group_func_wrap(
         out = out.astype(orig_type)
 
     return out
+
+
+
+def group_size(
+    group_key: ArrayType1D, 
+    ngroups: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    Count the number of elements in each group defined by group_key.
+    
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups.
+    ngroups : int
+        The number of unique groups in group_key.
+    mask : Optional[ArrayType1D]
+        A boolean mask to filter the elements before counting.
+    n_threads : int
+        Number of threads to use for parallel processing.
+
+    Returns
+    -------
+    ArrayType1D
+        An array with the count of elements in each group.
+    """
+    return _group_func_wrap('count', values=np.array([]), **locals())
 
 
 def group_count(
