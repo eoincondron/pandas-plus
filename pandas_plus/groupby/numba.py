@@ -97,12 +97,6 @@ def _group_func_wrap(
     if initial_value is None:
         initial_value = _default_initial_value_for_type(values)
     target = np.full(ngroups, initial_value)
-    if reduce_func_name == 'count':
-        out_type = 'int64'
-    elif reduce_func_name == 'sum' and orig_type.kind == 'b':
-        out_type = 'int64'
-    else:
-        out_type = orig_type
 
     kwargs = dict(
         group_key=group_key,
@@ -114,7 +108,7 @@ def _group_func_wrap(
     )
 
     if n_threads == 1:
-        return _group_by_iterator(**kwargs).astype(out_type)
+        out = _group_by_iterator(**kwargs)
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
         chunks = parallel_map(
@@ -122,10 +116,16 @@ def _group_func_wrap(
         )
         arr = np.vstack(chunks)
         chunk_reduce = "sum" if reduce_func_name == "count" else reduce_func_name
-        return nanops.reduce_2d(chunk_reduce, arr).astype(out_type)
+        out = nanops.reduce_2d(chunk_reduce, arr)
+
+    if reduce_func_name == 'count':
+        out = out.astype(np.int64)
+    elif orig_type.kind in 'mM':
+        out = out.astype(orig_type)
+
+    return out
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
 def group_count(
     group_key: ArrayType1D,
     values: ArrayType1D,
