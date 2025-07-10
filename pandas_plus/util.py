@@ -509,8 +509,6 @@ def _nb_dot(a: List[np.ndarray], b: np.ndarray, out: np.ndarray) -> np.ndarray:
 
 
 def nb_dot(a: Union[np.ndarray, pd.DataFrame, pl.DataFrame], b: ArrayType1D):
-    if not len(a):
-        return np.common_type(a.dtype, b.dtype)
     if isinstance(a, np.ndarray) and a.ndim != 2:
         raise ValueError("a must be a 2-dimensional array or DataFrame")
     if a.shape[1] != len(b):
@@ -519,9 +517,14 @@ def nb_dot(a: Union[np.ndarray, pd.DataFrame, pl.DataFrame], b: ArrayType1D):
         arr_list = a.T
     else:
         arr_list = [np.asarray(a[col]) for col in a.columns]
-    # TODO: what about mixed types here? Could be wrong for a mix of floats and ints
-    return_type = (arr_list[0][0] * b[0]).dtype
-    out = _nb_dot(
+
+    kinds = [a.dtype.kind for a in arr_list]
+    return_type = np.float64 if 'f' in kinds else np.int64
+
+    if not len(a):
+        out = np.zeros(0, dtype=return_type)
+    else:
+        out = _nb_dot(
         arr_list,
         np.asarray(b),
         out=np.zeros(len(a), dtype=return_type)
