@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from numba.core.extending import overload
+from pandas.core.sorting import get_group_index
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -627,3 +628,228 @@ def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allo
     out = pd.Series(out, index=df.index)
 
     return out
+
+
+def factorize_1d(
+    values,
+    sort: 'bool' = False,
+    size_hint: 'int | None' = None,
+) -> 'tuple[np.ndarray, np.ndarray | pd.Index]':
+    """
+    Encode the object as an enumerated type or categorical variable.
+    
+    This method is useful for obtaining a numeric representation of an
+    array when all that matters is identifying distinct values. factorize_1d
+    is available as both a top-level function :func:`~pandas_plus.util.factorize_1d`,
+    and as a method.
+    
+    Parameters
+    ----------
+    values : array-like
+        Sequence to be encoded. Can be any array-like object including lists,
+        numpy arrays, pandas Series, or pandas Categorical.
+    sort : bool, default False
+        Sort `values` before factorizing. If False, factorize in the order
+        in which the values first appear.
+    size_hint : int, optional
+        Hint to the algorithm for the expected number of unique values. This
+        can be used to pre-allocate the return arrays.
+        
+    Returns
+    -------
+    codes : np.ndarray[int64]
+        An integer array that represents the labels for each element in `values`.
+        For missing values (NaN, None), codes will contain -1.
+    uniques : np.ndarray or pd.Index
+        An array of unique values. When the input is a pandas Categorical,
+        this will be the categorical's categories. Otherwise, it will be a
+        numpy array or pandas Index containing the unique values in the order
+        they first appeared (or sorted order if sort=True).
+        
+    See Also
+    --------
+    factorize_2d : Factorize multiple 1-D arrays simultaneously.
+    pandas.factorize : pandas equivalent function.
+    pandas.Categorical : Represent a categorical variable in pandas.
+    
+    Notes
+    -----
+    For pandas Categorical inputs, this function returns the categorical's
+    codes and categories directly, ignoring the sort and size_hint parameters.
+    
+    Missing values (NaN, None) are assigned code -1 and are not included in
+    the uniques array.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from pandas_plus.util import factorize_1d
+    
+    Basic usage with a list:
+    
+    >>> values = [1, 2, 3, 1, 2, 3]
+    >>> codes, uniques = factorize_1d(values)
+    >>> codes
+    array([0, 1, 2, 0, 1, 2])
+    >>> uniques
+    array([1, 2, 3])
+    
+    With string values:
+    
+    >>> values = ['a', 'b', 'c', 'a', 'b']
+    >>> codes, uniques = factorize_1d(values)
+    >>> codes
+    array([0, 1, 2, 0, 1])
+    >>> uniques
+    array(['a', 'b', 'c'], dtype='<U1')
+    
+    With sorting enabled:
+    
+    >>> values = ['c', 'a', 'b', 'c', 'a']
+    >>> codes, uniques = factorize_1d(values, sort=True)
+    >>> codes
+    array([2, 0, 1, 2, 0])
+    >>> uniques
+    array(['a', 'b', 'c'], dtype='<U1')
+    
+    With NaN values:
+    
+    >>> values = [1.0, 2.0, np.nan, 1.0, np.nan]
+    >>> codes, uniques = factorize_1d(values)
+    >>> codes
+    array([ 0,  1, -1,  0, -1])
+    >>> uniques
+    array([1., 2.])
+    
+    With pandas Categorical:
+    
+    >>> cat = pd.Categorical(['a', 'b', 'c', 'a', 'b'])
+    >>> codes, uniques = factorize_1d(cat)
+    >>> codes
+    array([0, 1, 2, 0, 1])
+    >>> uniques
+    Index(['a', 'b', 'c'], dtype='object')
+    """
+    values = pd.Series(values)
+    try:
+        return np.asarray(values.cat.codes), values.cat.categories
+    except AttributeError:
+        return pd.factorize(values, sort=sort, use_na_sentinel=True, size_hint=size_hint)
+
+
+def factorize_2d(*vals):
+    """
+    Encode multiple 1-D arrays as enumerated types or categorical variables.
+    
+    This function factorizes multiple arrays simultaneously, creating a 
+    MultiIndex that represents all unique combinations of values across
+    the input arrays. This is useful for creating group identifiers from
+    multiple categorical variables.
+    
+    Parameters
+    ----------
+    *vals : array-like
+        Variable number of 1-D array-like objects to be factorized together.
+        Each array should have the same length. Can be any combination of
+        lists, numpy arrays, pandas Series, or pandas Categorical objects.
+        
+    Returns
+    -------
+    codes : np.ndarray[int64]
+        An integer array where each element represents the group identifier
+        for the corresponding combination of values across all input arrays.
+        Identical combinations will have the same code.
+    labels : pd.MultiIndex
+        A MultiIndex containing all unique combinations of values from the
+        input arrays. The number of levels equals the number of input arrays.
+        Each level contains the unique values from the corresponding input array.
+        
+    Raises
+    ------
+    ValueError
+        If input arrays have different lengths.
+        
+    See Also
+    --------
+    factorize_1d : Factorize a single 1-D array.
+    pandas.factorize : pandas equivalent function for single arrays.
+    pandas.MultiIndex.from_product : Create MultiIndex from the cartesian product of iterables.
+    pandas.core.sorting.get_group_index : Get group index from multiple arrays.
+    
+    Notes
+    -----
+    The function internally uses `factorize_1d` on each input array, then
+    combines the results using pandas' `get_group_index` function to create
+    a unified group identifier.
+    
+    Missing values (NaN, None) in any array will be treated as distinct
+    values and will contribute to unique combinations.
+    
+    The resulting MultiIndex is created using `pd.MultiIndex.from_product`,
+    which means it contains all possible combinations of the unique values
+    from each array, not just the combinations that actually appear in the data.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> from pandas_plus.util import factorize_2d
+    
+    Basic usage with two arrays:
+    
+    >>> vals1 = [1, 2, 3, 1, 2]
+    >>> vals2 = ['a', 'b', 'c', 'a', 'b']
+    >>> codes, labels = factorize_2d(vals1, vals2)
+    >>> codes
+    array([0, 1, 2, 0, 1])
+    >>> labels
+    MultiIndex([(1, 'a'),
+                (2, 'b'),
+                (3, 'c')],
+               names=[None, None])
+    
+    With three arrays:
+    
+    >>> vals1 = [1, 1, 2, 2]
+    >>> vals2 = ['x', 'y', 'x', 'y']
+    >>> vals3 = [True, False, True, False]
+    >>> codes, labels = factorize_2d(vals1, vals2, vals3)
+    >>> codes
+    array([0, 1, 2, 3])
+    >>> labels.nlevels
+    3
+    
+    Identical combinations get same codes:
+    
+    >>> vals1 = [1, 2, 1, 2, 1]
+    >>> vals2 = ['a', 'b', 'a', 'b', 'a']
+    >>> codes, labels = factorize_2d(vals1, vals2)
+    >>> codes
+    array([0, 1, 0, 1, 0])
+    
+    With pandas Series input:
+    
+    >>> s1 = pd.Series([1, 2, 3])
+    >>> s2 = pd.Series(['x', 'y', 'z'])
+    >>> codes, labels = factorize_2d(s1, s2)
+    >>> codes
+    array([0, 1, 2])
+    >>> labels
+    MultiIndex([(1, 'x'),
+                (2, 'y'),
+                (3, 'z')],
+               names=[None, None])
+    
+    With missing values:
+    
+    >>> vals1 = [1, 2, np.nan, 1, np.nan]
+    >>> vals2 = ['a', 'b', 'c', 'a', 'c']
+    >>> codes, labels = factorize_2d(vals1, vals2)
+    >>> codes  # NaN combinations get unique codes
+    array([0, 1, 2, 0, 2])
+    """
+    codes, labels = map(list, zip(*map(factorize_1d, vals)))
+    multi_codes = get_group_index(codes, tuple(map(len, labels)), sort=False, xnull=True)
+    index = pd.MultiIndex.from_product(labels)
+    return multi_codes, index

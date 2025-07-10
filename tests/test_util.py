@@ -7,7 +7,8 @@ import pytest
 
 from pandas_plus.util import (
     MAX_INT, MIN_INT, _get_first_non_null, _null_value_for_array_type,
-    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut, bools_to_categorical, nb_dot
+    convert_array_inputs_to_dict, get_array_name, is_null, pretty_cut, bools_to_categorical, nb_dot,
+    factorize_1d, factorize_2d
 )
 
 
@@ -929,3 +930,390 @@ class TestNbDot:
         expected = np.dot(a, b)
         
         np.testing.assert_array_almost_equal(result, expected)
+
+
+class TestFactorize1D:
+    """Test cases for the factorize_1d function."""
+
+    def test_basic_integer_array(self):
+        """Test factorize_1d with basic integer array."""
+        values = [1, 2, 3, 1, 2, 3, 1]
+        codes, labels = factorize_1d(values)
+        
+        assert isinstance(codes, np.ndarray)
+        assert isinstance(labels, (np.ndarray, pd.Index))
+        
+        # Check that codes are correct
+        expected_codes = np.array([0, 1, 2, 0, 1, 2, 0])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        # Check that labels are correct
+        expected_labels = [1, 2, 3]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_string_array(self):
+        """Test factorize_1d with string array."""
+        values = ['a', 'b', 'c', 'a', 'b', 'c']
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = ['a', 'b', 'c']
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_float_array(self):
+        """Test factorize_1d with float array."""
+        values = [1.5, 2.5, 3.5, 1.5, 2.5]
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 1, 2, 0, 1])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1.5, 2.5, 3.5]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_pandas_series_input(self):
+        """Test factorize_1d with pandas Series input."""
+        values = pd.Series([1, 2, 3, 1, 2, 3])
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1, 2, 3]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_categorical_series_input(self):
+        """Test factorize_1d with categorical Series input."""
+        values = pd.Categorical(['a', 'b', 'c', 'a', 'b'])
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 1, 2, 0, 1])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        # For categorical, labels should be the categories
+        expected_labels = ['a', 'b', 'c']
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_with_nan_values(self):
+        """Test factorize_1d with NaN values."""
+        values = [1.0, 2.0, np.nan, 1.0, np.nan, 3.0]
+        codes, labels = factorize_1d(values)
+        
+        # NaN values should get code -1
+        expected_codes = np.array([0, 1, -1, 0, -1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1.0, 2.0, 3.0]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_with_none_values(self):
+        """Test factorize_1d with None values."""
+        values = [1, 2, None, 1, None, 3]
+        codes, labels = factorize_1d(values)
+        
+        # None values should get code -1
+        expected_codes = np.array([0, 1, -1, 0, -1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1, 2, 3]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_empty_array(self):
+        """Test factorize_1d with empty array."""
+        values = []
+        codes, labels = factorize_1d(values)
+        
+        assert len(codes) == 0
+        assert len(labels) == 0
+
+    def test_single_value(self):
+        """Test factorize_1d with single value."""
+        values = [42]
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [42]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_sorted_option(self):
+        """Test factorize_1d with sort=True."""
+        values = ['c', 'a', 'b', 'c', 'a']
+        codes, labels = factorize_1d(values, sort=True)
+        
+        # With sort=True, labels should be sorted
+        expected_labels = ['a', 'b', 'c']
+        np.testing.assert_array_equal(labels, expected_labels)
+        
+        # Codes should correspond to sorted labels
+        expected_codes = np.array([2, 0, 1, 2, 0])
+        np.testing.assert_array_equal(codes, expected_codes)
+
+    def test_size_hint_option(self):
+        """Test factorize_1d with size_hint parameter."""
+        values = [1, 2, 3, 1, 2, 3]
+        codes, labels = factorize_1d(values, size_hint=10)
+        
+        # Should still work correctly with size_hint
+        expected_codes = np.array([0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1, 2, 3]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_boolean_array(self):
+        """Test factorize_1d with boolean array."""
+        values = [True, False, True, False, True]
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 1, 0, 1, 0])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [True, False]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_duplicates_preserved(self):
+        """Test that factorize_1d preserves duplicate patterns."""
+        values = [1, 1, 1, 2, 2, 3]
+        codes, labels = factorize_1d(values)
+        
+        expected_codes = np.array([0, 0, 0, 1, 1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        expected_labels = [1, 2, 3]
+        np.testing.assert_array_equal(labels, expected_labels)
+
+    def test_large_array(self):
+        """Test factorize_1d with larger array."""
+        np.random.seed(42)
+        values = np.random.choice(['A', 'B', 'C', 'D'], size=1000)
+        codes, labels = factorize_1d(values)
+        
+        # Check that all codes are valid
+        assert codes.max() < len(labels)
+        assert codes.min() >= 0
+        
+        # Check that we can reconstruct the original values
+        reconstructed = labels[codes]
+        np.testing.assert_array_equal(reconstructed, values)
+
+    def test_return_types(self):
+        """Test that factorize_1d returns correct types."""
+        values = [1, 2, 3, 1, 2]
+        codes, labels = factorize_1d(values)
+        
+        assert isinstance(codes, np.ndarray)
+        assert codes.dtype == np.int64
+        assert isinstance(labels, (np.ndarray, pd.Index))
+
+
+class TestFactorize2D:
+    """Test cases for the factorize_2d function."""
+
+    def test_basic_two_arrays(self):
+        """Test factorize_2d with two basic arrays."""
+        vals1 = [1, 2, 3, 1, 2]
+        vals2 = ['a', 'b', 'c', 'a', 'b']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        assert isinstance(codes, np.ndarray)
+        assert isinstance(labels, pd.MultiIndex)
+        
+        expected_codes = np.array([0, 4, 8, 0, 4])
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert [labels[c] for c in codes] == list(zip(vals1, vals2))
+        
+        # Check that labels are MultiIndex
+        assert labels.nlevels == 2
+        expected_level0 = [1, 2, 3]
+        expected_level1 = ['a', 'b', 'c']
+        np.testing.assert_array_equal(labels.levels[0], expected_level0)
+        np.testing.assert_array_equal(labels.levels[1], expected_level1)
+
+    def test_three_arrays(self):
+        """Test factorize_2d with three arrays."""
+        vals1 = [1, 2, 1, 2]
+        vals2 = ['a', 'b', 'a', 'b']
+        vals3 = [True, False, True, False]
+        codes, labels = factorize_2d(vals1, vals2, vals3)
+        
+        assert isinstance(codes, np.ndarray)
+        assert isinstance(labels, pd.MultiIndex)
+        assert labels.nlevels == 3
+        
+        # Check that duplicate combinations get same codes
+        assert codes[0] == codes[2]  # (1, 'a', True)
+        assert codes[1] == codes[3]  # (2, 'b', False)
+
+    def test_single_array(self):
+        """Test factorize_2d with single array."""
+        vals = [1, 2, 3, 1, 2, 3]
+        codes, labels = factorize_2d(vals)
+        
+        assert isinstance(codes, np.ndarray)
+        assert isinstance(labels, pd.MultiIndex)
+        assert labels.nlevels == 1
+        
+        expected_codes = np.array([0, 1, 2, 0, 1, 2])
+        np.testing.assert_array_equal(codes, expected_codes)
+
+    def test_pandas_series_input(self):
+        """Test factorize_2d with pandas Series input."""
+        vals1 = pd.Series([1, 2, 3, 1, 2])
+        vals2 = pd.Series(['x', 'y', 'z', 'x', 'y'])
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        expected_codes = np.array([0, 4, 8, 0, 4])
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert [labels[c] for c in codes] == list(zip(vals1, vals2))
+        
+        assert labels.nlevels == 2
+
+    def test_with_nan_values(self):
+        """Test factorize_2d with NaN values."""
+        vals1 = [1.0, 2.0, np.nan, 1.0, np.nan]
+        vals2 = ['a', 'b', 'c', 'a', 'c']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # NaN combinations should get unique codes
+        assert codes[0] == codes[3]  # (1.0, 'a') should be same
+        assert codes[2] == codes[4] == -1 # (NaN, 'c') should be same
+        
+        assert isinstance(labels, pd.MultiIndex)
+        assert labels.nlevels == 2
+        assert labels.levels[0].tolist() == [1.0, 2.0]
+
+    def test_with_nan_values_in_two_levels(self):
+        """Test factorize_2d with NaN values."""
+        vals1 = [1.0, 2.0, np.nan, 1.0, np.nan]
+        vals2 = ['a', 'b', 'c', 'a', np.nan]
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # NaN combinations should get unique codes
+        assert codes[0] == codes[3]  # (1.0, 'a') should be same
+        assert codes[2] == codes[4] == -1 # (NaN, 'c') should be same
+        
+        assert isinstance(labels, pd.MultiIndex)
+        assert labels.nlevels == 2
+        assert labels.levels[0].tolist() == [1.0, 2.0]
+        assert labels.levels[1].tolist() == ['a', 'b', 'c']
+
+    def test_different_lengths_error(self):
+        """Test factorize_2d with arrays of different lengths."""
+        vals1 = [1, 2, 3]
+        vals2 = ['a', 'b']  # Different length
+        
+        # This should raise an error due to different lengths
+        with pytest.raises(ValueError):
+            factorize_2d(vals1, vals2)
+
+    def test_empty_arrays(self):
+        """Test factorize_2d with empty arrays."""
+        vals1 = []
+        vals2 = []
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        assert len(codes) == 0
+        assert isinstance(labels, pd.MultiIndex)
+        assert labels.nlevels == 2
+
+    def test_single_value_arrays(self):
+        """Test factorize_2d with single value arrays."""
+        vals1 = [42]
+        vals2 = ['single']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        expected_codes = np.array([0])
+        np.testing.assert_array_equal(codes, expected_codes)
+        
+        assert labels.nlevels == 2
+
+    def test_boolean_arrays(self):
+        """Test factorize_2d with boolean arrays."""
+        vals1 = [True, False, True, False]
+        vals2 = [False, True, False, True]
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # Check that combinations are correctly identified
+        assert codes[0] == codes[2]  # (True, False) should be same
+        assert codes[1] == codes[3]  # (False, True) should be same
+        
+        assert labels.nlevels == 2
+
+    def test_mixed_types(self):
+        """Test factorize_2d with mixed data types."""
+        vals1 = [1, 2.5, 3, 1, 2.5]
+        vals2 = ['a', 'b', 'c', 'a', 'b']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        expected_codes = np.array([0, 4, 8, 0, 4])
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert [labels[c] for c in codes] == list(zip(vals1, vals2))
+        
+        assert labels.nlevels == 2
+
+    def test_categorical_input(self):
+        """Test factorize_2d with categorical input."""
+        vals1 = pd.Categorical(['x', 'y', 'z', 'x', 'y'])
+        vals2 = [1, 2, 3, 1, 2]
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        expected_codes = np.array([0, 4, 8, 0, 4])
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert [labels[c] for c in codes] == list(zip(vals1, vals2))
+        
+        assert labels.nlevels == 2
+
+    def test_large_arrays(self):
+        """Test factorize_2d with larger arrays."""
+        np.random.seed(42)
+        vals1 = np.random.choice(['A', 'B', 'C'], size=1000)
+        vals2 = np.random.choice([1, 2, 3, 4], size=1000)
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # Check that all codes are valid
+        assert codes.max() < len(labels)
+        assert codes.min() >= 0
+        
+        # Check that labels is MultiIndex with 2 levels
+        assert labels.nlevels == 2
+        assert isinstance(labels, pd.MultiIndex)
+
+    def test_return_types(self):
+        """Test that factorize_2d returns correct types."""
+        vals1 = [1, 2, 3]
+        vals2 = ['a', 'b', 'c']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        assert isinstance(codes, np.ndarray)
+        assert codes.dtype == np.int64
+        assert isinstance(labels, pd.MultiIndex)
+
+    def test_unique_combinations(self):
+        """Test that factorize_2d correctly identifies unique combinations."""
+        vals1 = [1, 1, 2, 2, 1, 2]
+        vals2 = ['a', 'b', 'a', 'b', 'a', 'b']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # Should have 4 unique combinations: (1,'a'), (1,'b'), (2,'a'), (2,'b')
+        unique_codes = np.unique(codes)
+        assert len(unique_codes) == 4
+        
+        # Check that identical combinations get same codes
+        assert codes[0] == codes[4]  # (1, 'a')
+        assert codes[1] != codes[2]  # (1, 'b') != (2, 'a')
+        assert codes[3] == codes[5]  # (2, 'b')
+
+    def test_codes_consistency(self):
+        """Test that codes are consistently assigned."""
+        vals1 = [3, 1, 2, 3, 1, 2]
+        vals2 = ['z', 'x', 'y', 'z', 'x', 'y']
+        codes, labels = factorize_2d(vals1, vals2)
+        
+        # Same combinations should have same codes
+        assert codes[0] == codes[3]  # (3, 'z')
+        assert codes[1] == codes[4]  # (1, 'x')
+        assert codes[2] == codes[5]  # (2, 'y')
