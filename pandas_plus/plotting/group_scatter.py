@@ -46,8 +46,8 @@ class GroupScatter:
         self._y = np.asarray(self.y[self.filter])
         null_filter = np.isnan(self._x) | np.isnan(self._y)
         if null_filter.any():
-            self._x = self._x[null_filter]
-            self._y = self._y[null_filter]
+            self._x = self._x[~null_filter]
+            self._y = self._y[~null_filter]
         self._calculate_bins()
         self._calculate_regression()
 
