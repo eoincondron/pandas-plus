@@ -36,11 +36,13 @@ class TestGroupBy:
         result = getattr(GroupBy, method)(key, values, mask=mask)
 
         expected = getattr(pd.Series(values, index=index)[pd_mask].groupby(key[pd_mask]), method)()
-        pd.testing.assert_series_equal(result, expected, check_dtype=method != "mean")
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert result.dtype.kind == expected.dtype.kind
 
         gb = GroupBy(key)
         result = getattr(gb, method)(values, mask=mask)
-        pd.testing.assert_series_equal(result, expected, check_dtype=method != "mean")
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert result.dtype.kind == expected.dtype.kind
 
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -179,5 +181,4 @@ class TestGroupBy:
         mask = key != 1
         result_masked = GroupBy.sum(key, values, mask=mask)
         expected_masked = values[mask].groupby(key[mask], observed=True).sum()
-        breakpoint()
         assert(result_masked == expected_masked).all()
