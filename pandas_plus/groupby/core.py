@@ -488,11 +488,6 @@ def pivot(
     pd.DataFrame
         Cross-tabulated DataFrame with group keys as index and values as columns
     """
-    if agg_func == 'mean':
-        kwargs = locals().copy()
-        del kwargs['agg_func']
-        return pivot(**kwargs, agg_func="sum") / pivot(**kwargs, agg_func='size')
-    
     index, index_names = convert_data_to_arr_list_and_keys(index)
     columns, index_columns = convert_data_to_arr_list_and_keys(columns)
     
@@ -504,13 +499,11 @@ def pivot(
             values=values,
             agg_func=agg_func,
             mask=mask,
+            margins=margins,
         )
 
-    out = out.unstack(level=list(range(len(index), len(index) + len(columns))), fill_value=0)
-    if margins:
-        margin_func = "sum" if agg_func in ("count", "size") else agg_func
-        out = out.assign(Total=out.agg(margin_func, axis=1))
-        out.loc['Total'] = out.agg(margin_func, axis=0)
+    out = out.unstack(level=[i + len(index) for i, _ in enumerate(columns)], fill_value=0)
+
     return out  
 
 
