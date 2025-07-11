@@ -183,7 +183,6 @@ class GroupBy:
     def __init__(self, group_keys: ArrayCollection):
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
         indexes = _get_indexes_from_values(group_key_list)
-        common_index = _validate_input_indexes(indexes)
         
         if len(group_key_list) == 1:
             self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
@@ -308,9 +307,12 @@ class GroupBy:
             else:
                 out = pd.DataFrame(out_dict)
 
-        if not transform and mask is not None:
-            observed = self.sum(values=mask)
-            out = out.loc[observed > 0]
+        if not transform:
+            if mask is not None:
+                observed = self.size(mask=mask, observed_only=False) > 0
+            else:
+                observed = self.key_count > 0
+            out = out.loc[observed]
 
         if margins:
             out = add_row_margin(out, agg_func="sum" if func in ("size", "count") else func_name)
@@ -318,7 +320,7 @@ class GroupBy:
 
     @groupby_method
     def size(
-        self, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
+        self, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False, observed_only: bool = True
     ):
         out = numba_funcs.group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1)
         if transform:
@@ -326,14 +328,18 @@ class GroupBy:
         
         out = pd.Series(out[:-1], index=self.result_index, name="size")
 
-        if mask is not None:
-            observed = self.sum(values=mask)
-            out = out.loc[observed > 0]
+        if observed_only and not transform:
+            out = out.loc[out > 0]
 
         if margins:
             out = add_row_margin(out, agg_func="sum")
 
         return out
+    
+    @cached_property
+    def key_count(self):
+        return self.size(observed_only=False)
+    
 
     @groupby_method
     def count(
