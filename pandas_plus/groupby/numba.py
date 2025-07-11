@@ -109,27 +109,40 @@ def find_last_n(
 
 
 @nb.njit(nogil=True, fastmath=False)
-def _group_by_iterator(
+def _group_by_counter(
+    group_key: np.ndarray,
+    values: np.ndarray | None,
+    target: np.ndarray,
+    mask: Optional[np.ndarray] = None,
+):
+    masked = mask is not None
+    skip_na = values is None
+    for i in range(len(group_key)):
+        key = group_key[i]
+        if masked and not mask[i]:
+            continue
+        if not skip_na:
+            if is_null(values[i]):
+                continue
+        target[key] += 1
+    return target
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _group_by_reduce(
     group_key: np.ndarray,
     values: np.ndarray,
     target: np.ndarray,
-    mask: np.ndarray,
     reduce_func: Callable,
-    must_see: bool = True,
+    mask: Optional[np.ndarray] = None,
+    skip_na: bool = True,
 ):
-    if len(values) == 0:
-        for i in range(len(group_key)):
-            key = group_key[i]
-            if len(mask) and not mask[i]:
-                continue
-            target[key] += 1
-        return target
-
-    seen = np.full(len(target), not must_see)
+    masked = mask is not None
+    seen = np.full(len(target), False)
     for i in range(len(group_key)):
         key = group_key[i]
         val = values[i]
-        if is_null(val) or (len(mask) and not mask[i]):
+        if (skip_na and is_null(val)) or (masked and not mask[i]):
             continue
 
         if seen[key]:
@@ -162,26 +175,31 @@ def _default_initial_value_for_type(arr):
 def _chunk_groupby_args(
     n_chunks: int,
     group_key: np.ndarray,
-    values: np.ndarray,
+    values: np.ndarray | None,
     target: np.ndarray,
-    mask: np.ndarray,
-    reduce_func: Callable,
-    must_see: bool,
+    reduce_func: Optional[Callable] = None,
+    mask: Optional[np.ndarray] = None,
 ):
-    mask = _prepare_mask_for_numba(mask)
-    values = np.asarray(values)
-
     kwargs = locals().copy()
     del kwargs["n_chunks"]
-    shared_kwargs = {k: kwargs[k] for k in ["target", "reduce_func", "must_see"]}
+    shared_kwargs = {"target": target}
+    if reduce_func is None:
+        iterator = _group_by_counter
+    else:
+        iterator = _group_by_reduce
+        shared_kwargs["reduce_func"] = reduce_func
 
     chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
     for name in ["group_key", "values", "mask"]:
-        for chunk_no, arr in enumerate(np.array_split(kwargs[name], n_chunks)):
+        if kwargs[name] is None:
+            chunks = [None] * n_chunks
+        else:
+            chunks = np.array_split(kwargs[name], n_chunks)
+        for chunk_no, arr in enumerate(chunks):
             chunked_kwargs[chunk_no][name] = arr
 
     chunked_args = [
-        signature(_group_by_iterator).bind(**kwargs) for kwargs in chunked_kwargs
+        signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs
     ]
 
     return chunked_args
@@ -189,7 +207,7 @@ def _chunk_groupby_args(
 
 @check_data_inputs_aligned("group_key", "values", "mask")
 def _group_func_wrap(
-    reduce_func_name: str,
+    reduce_func_name: str | None,
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
@@ -197,37 +215,45 @@ def _group_func_wrap(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    if values is None:
-        values = np.array([])
+    group_key = np.asarray(group_key)
+    if mask is not None:
+        mask = np.asarray(mask)
+
+    if reduce_func_name is None:
         initial_value = 0
-    else:
+
+    if values is not None:
         values = np.asarray(values)
         values, orig_type = _maybe_cast_timestamp_arr(values)
         if initial_value is None:
             initial_value = _default_initial_value_for_type(values)
 
     target = np.full(ngroups, initial_value)
-    mask = _prepare_mask_for_numba(mask)
 
+    if reduce_func_name is None:
+        iterator = _group_by_counter
+    else:
+        iterator = _group_by_reduce
+    
     kwargs = dict(
         group_key=group_key,
         values=values,
         target=target,
         mask=mask,
-        reduce_func=getattr(NumbaReductionOps, reduce_func_name),
-        must_see=reduce_func_name != "count",
     )
+    if reduce_func_name is not None:
+        kwargs["reduce_func"] = getattr(NumbaReductionOps, reduce_func_name)
 
     if n_threads == 1:
-        out = _group_by_iterator(**kwargs)
+        out = iterator(**kwargs)
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
-        chunks = parallel_map(_group_by_iterator, [args.args for args in chunked_args])
+        chunks = parallel_map(iterator, [args.args for args in chunked_args])
         arr = np.vstack(chunks)
-        chunk_reduce = "sum" if reduce_func_name == "count" else reduce_func_name
+        chunk_reduce = "sum" if reduce_func_name is None else reduce_func_name
         out = nanops.reduce_2d(chunk_reduce, arr)
 
-    if reduce_func_name == "count":
+    if reduce_func_name is None:
         out = out.astype(np.int64)
     elif orig_type.kind in "mM":
         out = out.astype(orig_type)
@@ -260,7 +286,7 @@ def group_size(
     ArrayType1D
         An array with the count of elements in each group.
     """
-    return _group_func_wrap("count", values=None, **locals())
+    return _group_func_wrap(reduce_func_name=None, values=None, **locals())
 
 
 def group_count(
@@ -302,9 +328,8 @@ def group_count(
     >>> counts = group_count(group_key, values, ngroups)
     >>> print(counts)
     [2 2 1]
-    """
-    initial_value = 0
-    return _group_func_wrap("count", **locals())
+    """ 
+    return _group_func_wrap(reduce_func_name=None, **locals())
 
 
 def group_sum(

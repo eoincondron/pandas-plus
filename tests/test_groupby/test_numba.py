@@ -4,9 +4,17 @@ import pandas as pd
 import pytest
 from inspect import signature
 
-from pandas_plus.groupby.numba import (NumbaGroupByMethods, _chunk_groupby_args, _group_by_iterator,
-                                       group_nearby_members, group_count, group_mean,
-                                       group_max, group_min, group_sum)
+from pandas_plus.groupby.numba import (
+    NumbaGroupByMethods,
+    _chunk_groupby_args,
+    _group_by_reduce,
+    group_nearby_members,
+    group_count,
+    group_mean,
+    group_max,
+    group_min,
+    group_sum,
+)
 from pandas_plus.util import is_null as py_isnull, MIN_INT, NumbaReductionOps
 
 
@@ -34,7 +42,7 @@ def test_scalar_methods(method, values):
 
 
 class TestChunkGroupbyArgs:
-    
+
     def test_basic_functionality(self):
         """Test basic functionality with simple inputs."""
         # Setup
@@ -44,7 +52,7 @@ class TestChunkGroupbyArgs:
         mask = np.ones(5, dtype=bool)
         reduce_func = NumbaReductionOps.sum
         n_chunks = 2
-        
+
         # Call the function
         chunked_args = _chunk_groupby_args(
             n_chunks=n_chunks,
@@ -53,28 +61,29 @@ class TestChunkGroupbyArgs:
             target=target,
             mask=mask,
             reduce_func=reduce_func,
-            must_see=True
         )
-        
+
         # Verify results
         assert len(chunked_args) == n_chunks
-        
+
         # Each chunked argument should be bound arguments for _group_by_iterator
         for args in chunked_args:
-            assert args.signature == signature(_group_by_iterator)
-            
+            assert args.signature == signature(_group_by_reduce)
+
         # Check first chunk
         first_chunk = chunked_args[0]
         assert len(first_chunk.args[0]) <= 3  # group_key length should be around half
         assert len(first_chunk.args[1]) <= 3  # values length should be around half
-        assert len(first_chunk.args[3]) <= 3  # mask length should be around half
-        assert first_chunk.args[2].shape == target.shape  # target shape should be unchanged
-        
+        assert len(first_chunk.args[4]) <= 3  # mask length should be around half
+        assert (
+            first_chunk.args[2].shape == target.shape
+        )  # target shape should be unchanged
+
         # Test with actual _group_by_iterator
-        results = [_group_by_iterator(*args.args) for args in chunked_args]
+        results = [_group_by_reduce(*args.args) for args in chunked_args]
         assert all(isinstance(r, np.ndarray) for r in results)
         assert all(r.shape == target.shape for r in results)
-    
+
     def test_with_empty_mask(self):
         """Test with mask=None."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
@@ -82,7 +91,7 @@ class TestChunkGroupbyArgs:
         target = np.zeros(3)
         reduce_func = NumbaReductionOps.sum
         n_chunks = 2
-        
+
         chunked_args = _chunk_groupby_args(
             n_chunks=n_chunks,
             group_key=group_key,
@@ -90,26 +99,27 @@ class TestChunkGroupbyArgs:
             target=target,
             mask=np.array([], dtype=bool),
             reduce_func=reduce_func,
-            must_see=True
         )
-        
+
         assert len(chunked_args) == n_chunks
-        
+
         # Check that mask was properly prepared
         for args in chunked_args:
-            mask = args.arguments['mask']
+            mask = args.arguments["mask"]
             assert isinstance(mask, np.ndarray)  # mask is prepared
             assert mask.dtype == bool  # mask is boolean
             assert len(mask) == 0  # mask length matches chunk length
-    
+
     def test_different_chunk_numbers(self):
         """Test with different numbers of chunks."""
         group_key = np.array([0, 1, 0, 2, 1, 3, 4, 5, 6, 7], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
+        values = np.array(
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64
+        )
         target = np.zeros(8)
         mask = np.ones(10, dtype=bool)
         reduce_func = NumbaReductionOps.sum
-        
+
         for n_chunks in [1, 2, 3, 5, 10]:
             chunked_args = _chunk_groupby_args(
                 n_chunks=n_chunks,
@@ -118,18 +128,17 @@ class TestChunkGroupbyArgs:
                 target=target,
                 mask=mask,
                 reduce_func=reduce_func,
-                must_see=True
             )
-            
+
             assert len(chunked_args) == n_chunks
-            
+
             # Check that the total length of all chunks equals the original length
             total_group_key_length = sum(len(args.args[0]) for args in chunked_args)
             assert total_group_key_length == len(group_key)
-            
+
             total_values_length = sum(len(args.args[1]) for args in chunked_args)
             assert total_values_length == len(values)
-    
+
     def test_target_is_copied(self):
         """Test that target arrays are copied, not shared between chunks."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
@@ -138,7 +147,7 @@ class TestChunkGroupbyArgs:
         mask = np.ones(5, dtype=bool)
         reduce_func = NumbaReductionOps.sum
         n_chunks = 2
-        
+
         chunked_args = _chunk_groupby_args(
             n_chunks=n_chunks,
             group_key=group_key,
@@ -146,13 +155,12 @@ class TestChunkGroupbyArgs:
             target=target,
             mask=mask,
             reduce_func=reduce_func,
-            must_see=True
         )
-        
+
         # Modify target in first chunk and verify it doesn't affect second chunk
         chunked_args[0].args[2][0] = 999.0
         assert chunked_args[1].args[2][0] == 0.0
-    
+
     def test_with_boolean_values(self):
         """Test with boolean values."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
@@ -161,7 +169,7 @@ class TestChunkGroupbyArgs:
         mask = np.ones(5, dtype=bool)
         reduce_func = NumbaReductionOps.sum
         n_chunks = 2
-        
+
         chunked_args = _chunk_groupby_args(
             n_chunks=n_chunks,
             group_key=group_key,
@@ -169,15 +177,14 @@ class TestChunkGroupbyArgs:
             target=target,
             mask=mask,
             reduce_func=reduce_func,
-            must_see=True
         )
-        
+
         # Check values were preserved
         all_values = np.concatenate([args.args[1] for args in chunked_args])
         np.testing.assert_array_equal(np.sort(all_values), np.sort(values))
-        
+
         # Test with actual _group_by_iterator
-        results = [_group_by_iterator(*args.args) for args in chunked_args]
+        results = [_group_by_reduce(*args.args) for args in chunked_args]
         assert all(r.dtype == bool for r in results)
 
 
@@ -252,13 +259,15 @@ class TestGroupSum:
         with pytest.raises(ValueError):
             group_sum(group_key, values, ngroups=3, mask=mask)
 
-    @pytest.mark.parametrize("func", [group_count, group_sum, group_mean, group_min, group_max])
+    @pytest.mark.parametrize(
+        "func", [group_count, group_sum, group_mean, group_min, group_max]
+    )
     def test_multi_threaded(self, func):
         N = 2_000_000
         group_key = np.arange(N) % 5
         values = np.random.rand(N)
         result = func(group_key, values, ngroups=5, n_threads=4)
-        func_name = func.__name__.split('_')[1]
+        func_name = func.__name__.split("_")[1]
         expected = pd.Series(values).groupby(group_key).agg(func_name).values
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -268,94 +277,96 @@ class TestGroupNearbyMembers:
         """Test basic functionality with simple inputs."""
         # Setup - Group 0 has increasing values, Group 1 has some gaps
         group_key = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 10.0, 11.0, 20.0, 21.0], dtype=np.float64)
+        values = np.array(
+            [1.0, 2.0, 3.0, 4.0, 10.0, 11.0, 20.0, 21.0], dtype=np.float64
+        )
         max_diff = 5.0
         n_groups = 2  # We have group 0 and group 1
-        
+
         # Call the function
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Verify results:
         # All values in group 0 should be in the same subgroup (diff <= 5)
         # Group 1 should be split into two subgroups (10->11 and 20->21)
         expected_subgroups = np.array([0, 0, 0, 0, 1, 1, 2, 2])
         np.testing.assert_array_equal(result, expected_subgroups)
-    
+
     def test_all_new_groups(self):
         """Test when all values exceed max_diff (each value is its own group)."""
         group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
         values = np.array([1.0, 10.0, 20.0, 5.0, 15.0], dtype=np.float64)
         max_diff = 1.0  # Very small difference threshold
         n_groups = 2
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Each value should be in its own group
         expected_subgroups = np.array([0, 1, 2, 3, 4])
         np.testing.assert_array_equal(result, expected_subgroups)
-    
+
     def test_single_group_per_key(self):
         """Test when all values in each key group are within max_diff."""
         group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
         values = np.array([1.0, 1.5, 2.0, 10.0, 10.5, 11.0], dtype=np.float64)
         max_diff = 10.0  # Large difference threshold
         n_groups = 2
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Should have one subgroup per original group
         expected_subgroups = np.array([0, 0, 0, 1, 1, 1])
         np.testing.assert_array_equal(result, expected_subgroups)
-    
+
     def test_with_integer_values(self):
         """Test with integer values instead of floats."""
         group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
         values = np.array([1, 2, 10, 5, 15], dtype=np.int64)
         max_diff = 5
         n_groups = 2
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Group 0: [1,2] should be one group, 10 another
         # Group 1: 5 and 15 should be separate groups
         expected_subgroups = np.array([0, 0, 1, 2, 3])
         np.testing.assert_array_equal(result, expected_subgroups)
-    
+
     def test_interleaved_groups(self):
         """Test with interleaved group keys."""
         group_key = np.array([0, 1, 0, 1, 0, 1], dtype=np.int64)
         values = np.array([1.0, 10.0, 2.0, 20.0, 10.0, 21.0], dtype=np.float64)
         max_diff = 5.0
         n_groups = 2
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Group 0: [1,2] should be one group, 10 another
         # Group 1: [10] one group, [20,21] another
         expected_subgroups = np.array([0, 1, 0, 2, 3, 2])
         np.testing.assert_array_equal(result, expected_subgroups)
-    
+
     def test_empty_inputs(self):
         """Test with empty inputs."""
         group_key = np.array([], dtype=np.int64)
         values = np.array([], dtype=np.float64)
         max_diff = 5.0
         n_groups = 0
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Should return empty array
         assert len(result) == 0
-        
+
     def test_with_negative_values(self):
         """Test with negative values."""
         group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
         values = np.array([-10.0, -5.0, 0.0, -20.0, -15.0], dtype=np.float64)
         max_diff = 7.0
         n_groups = 2
-        
+
         result = group_nearby_members(group_key, values, max_diff, n_groups)
-        
+
         # Group 0: [-10, -5, 0] should split into two groups: [-10, -5] and [0]
         # Group 1: [-20, -15] should be one group (diff = 5)
         expected_subgroups = np.array([0, 0, 0, 1, 1])
@@ -399,10 +410,9 @@ class TestGroupCount:
         """Test _group_count with data containing no null values."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int_)
         values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-        mask = np.ones(len(group_key), dtype=bool)
         ngroups = 3
 
-        result = group_count(group_key, values, mask=mask, ngroups=ngroups)
+        result = group_count(group_key, values, mask=None, ngroups=ngroups)
 
         # Expected: 2 values in group 0, 2 values in group 1, 1 value in group 2
         expected = np.array([2, 2, 1], dtype=np.int_)
