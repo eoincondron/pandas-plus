@@ -12,6 +12,32 @@ from ..util import (ArrayType1D, check_data_inputs_aligned, is_null, _null_value
 from .. import nanops
 
 
+@nb.njit
+def _find_first_or_last_n(
+    group_key: np.ndarray,
+    ngroups: np.ndarray,
+    n: int,
+    mask: Optional[np.ndarray] = None,
+):
+    out = np.full((ngroups, n), -1, dtype=np.int64)
+    seen = np.zeros(ngroups, dtype=np.int16)
+    masked = mask is not None
+    for i, k in enumerate(group_key):
+        if k < 0:
+            continue
+        if masked and not mask[i]:
+            continue
+        j = seen[k]
+        if j < n:
+            out[k, j] = i
+            seen[k] += 1
+
+        # max_seen = max(min_seen, seen[k])
+        # if max_seen == n:
+        #     break
+    return out
+
+
 @nb.njit(nogil=True, fastmath=False)
 def _group_by_iterator(
     group_key: np.ndarray,
