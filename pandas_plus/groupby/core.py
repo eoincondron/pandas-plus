@@ -437,9 +437,19 @@ class GroupBy:
         values2: ArrayCollection,
         mask: Optional[ArrayType1D] = None,
         agg_func="sum",
-    ):
+        margins: bool = False,
+    ) -> pd.Series | pd.DataFrame:
         # check for nullity
-        self.agg(values1, agg_func, mask) / self.agg(values2, agg_func, mask)
+        arr1, _ = convert_data_to_arr_list_and_keys(values1)
+        arr2, _ = convert_data_to_arr_list_and_keys(values2)
+        for left, right in zip(arr1, arr2):
+            if (pd.isna(left) != pd.isna(right)).any():
+                raise ValueError(
+                    "Values must have the same nullity as otherwise the ratio is undefined. "
+                    f"Found {left} and {right} with different null values."
+                )
+        kwargs = dict(mask=mask, agg_func=agg_func, margins=margins)
+        return self.agg(values1, **kwargs) / self.agg(values2, **kwargs)
 
     @groupby_method
     def subset_ratio(
@@ -448,9 +458,11 @@ class GroupBy:
             subset_mask: ArrayType1D,
             global_mask: Optional[ArrayType1D] = None,
             agg_func="sum",
-    ):
+            margins: bool = False,
+    ) -> pd.Series | pd.DataFrame:
         # check for nullity
-        self.agg(values, agg_func, subset_mask & global_mask) / self.agg(values, agg_func, global_mask)
+        kwargs = dict(agg_func=agg_func, margins=margins, values=values)
+        return self.agg(**kwargs, mask=subset_mask & global_mask) / self.agg(**kwargs, global_mask)
 
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
