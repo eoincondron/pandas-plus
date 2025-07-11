@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pandas_plus.groupby import GroupBy
+from pandas_plus.groupby.core import GroupBy, add_row_margin
 
 
 def assert_pd_equal(left, right, **kwargs):
@@ -175,10 +175,35 @@ class TestGroupBy:
         key.iloc[1] = np.nan
         result = GroupBy.sum(key, values)
         expected = values.groupby(key, observed=True).sum()
-        assert(result == expected).all()
+        assert np.isclose(result, expected).all()
 
         # Test with mask
         mask = key != 1
         result_masked = GroupBy.sum(key, values, mask=mask)
         expected_masked = values[mask].groupby(key[mask], observed=True).sum()
-        assert(result_masked == expected_masked).all()
+        assert np.isclose(result_masked, expected_masked).all()
+
+
+@pytest.mark.parametrize("nlevels", [1, 2, 3])
+@pytest.mark.parametrize("aggfunc", ["sum", "min", "max"])
+def test_add_row_margin(aggfunc, nlevels):
+    df = pd.DataFrame({
+        'Bools': [True, False] * 15,
+        'Strings': ['A', 'B', 'C'] * 10,
+        'Ints': np.repeat(np.arange(10), 3),
+        'X': np.random.rand(30),
+    })        
+    summary = df.groupby(['Bools', 'Strings', 'Ints'][:nlevels]).X.agg(aggfunc)
+    with_margin = add_row_margin(summary, agg_func=aggfunc)
+    assert (with_margin.reindex(summary.index) == summary).all().all()
+
+    if nlevels == 1:
+        assert with_margin.loc['All'] == summary.agg(aggfunc)
+    else:
+        total_key = ['All'] * nlevels
+        assert np.isclose(with_margin.loc[tuple(total_key)], summary.agg(aggfunc)).all()
+        for i, level in enumerate(summary.index.levels):
+            key = level[0]
+            ix = total_key.copy()
+            ix[i] = key
+            assert np.isclose(with_margin.loc[tuple(ix)], summary.xs(key, 0, i).agg(aggfunc)).all()

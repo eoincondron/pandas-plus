@@ -854,5 +854,11 @@ def factorize_2d(*vals):
     """
     codes, labels = map(list, zip(*map(factorize_1d, vals)))
     multi_codes = get_group_index(codes, tuple(map(len, labels)), sort=False, xnull=True)
-    index = pd.MultiIndex.from_product(labels)
+    from pandas.core.reshape.util import cartesian_product
+
+    index = pd.MultiIndex(
+        codes=cartesian_product([np.arange(len(lvl)) for lvl in labels]),
+        levels=labels,
+        names=[get_array_name(v) for v in vals]
+    )
     return multi_codes, index

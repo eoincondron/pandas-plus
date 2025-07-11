@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .numba import group_size, group_count, group_max, group_mean, group_min, group_sum, group_nearby_members
+from . import numba as numba_funcs
 from ..util import (ArrayType1D, ArrayType2D, TempName, factorize_1d, factorize_2d,
                    convert_data_to_arr_list_and_keys, get_array_name)
 
@@ -244,10 +244,11 @@ class GroupBy:
 
     def _apply_gb_func(
         self,
-        func: Callable,
+        func_name: str,
         values: ArrayCollection,
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
+        margins: bool = False,
     ):
         """
         Apply a group-by function to values.
@@ -262,6 +263,8 @@ class GroupBy:
             Boolean mask to filter values
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group
+        margins : bool, default False
+            If True, include a total row in the result
             
         Returns
         -------
@@ -279,6 +282,8 @@ class GroupBy:
 
         indexes = _get_indexes_from_values(value_list)
         common_index = _validate_input_indexes(indexes)
+
+        func = getattr(numba_funcs, f"group_{func_name}")
 
         results = map(
             lambda v: func(
@@ -307,13 +312,15 @@ class GroupBy:
             observed = self.sum(values=mask)
             out = out.loc[observed > 0]
 
+        if margins:
+            out = add_row_margin(out, agg_func="sum" if func in ("size", "count") else func_name)
         return out
 
     @groupby_method
     def size(
-        self, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
-        out = group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1)
+        out = numba_funcs.group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1)
         if transform:
             return out[self.group_ikey]
         
@@ -323,46 +330,56 @@ class GroupBy:
             observed = self.sum(values=mask)
             out = out.loc[observed > 0]
 
+        if margins:
+            out = add_row_margin(out, agg_func="sum")
+
         return out
 
     @groupby_method
     def count(
-        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
         return self._apply_gb_func(
-            group_count, values=values, mask=mask, transform=transform
+            "count", values=values, mask=mask, transform=transform, margins=margins
         )
-
+    
     @groupby_method
     def sum(
-        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
         return self._apply_gb_func(
-            group_sum, values=values, mask=mask, transform=transform
+            "sum", values=values, mask=mask, transform=transform, margins=margins
         )
 
     @groupby_method
     def mean(
-        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
-        return self._apply_gb_func(
-            group_mean, values=values, mask=mask, transform=transform
-        )
-
+        kwargs = dict(values=values, mask=mask, transform=transform, margins=margins)
+        sum_, count = self.sum(**kwargs), self.count(**kwargs)
+        if sum_.ndim == 2:
+            timestamp_cols = [col for col, d in sum_.dtypes.items() if d.kind in "mM"]
+            tmp_types = {col: "int64" for col in timestamp_cols}
+            return sum_.astype(tmp_types, copy=False).div(count).astype(sum_.dtypes[timestamp_cols], copy=False)
+        elif sum_.dtype.kind in "mM":
+            return (sum_.astype("int64") // count).astype(sum_.dtype)
+        else:
+            return sum_ / count
+    
     @groupby_method
     def min(
-        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
         return self._apply_gb_func(
-            group_min, values=values, mask=mask, transform=transform
+            "min", values=values, mask=mask, transform=transform, margins=margins
         )
 
     @groupby_method
     def max(
-        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False
+        self, values: ArrayCollection, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False
     ):
         return self._apply_gb_func(
-            group_max, values=values, mask=mask, transform=transform
+            "max", values=values, mask=mask, transform=transform, margins=margins
         )
 
     @groupby_method
@@ -371,13 +388,14 @@ class GroupBy:
         values: ArrayCollection,
         agg_func: Callable | str | List[str],
         mask: Optional[ArrayType1D] = None,
-        transform: bool = False,
+        transform: bool = False, 
+        margins: bool = False,
     ):
         if np.ndim(agg_func) == 0:
             if isinstance(agg_func, Callable):
                 agg_func = agg_func.__name__
             func = getattr(self, agg_func)
-            return func(values, mask=mask, transform=transform)
+            return func(values, mask=mask, transform=transform, margins=margins)
         elif np.ndim(agg_func) == 1:
             if isinstance(values, ArrayType1D):
                 values = dict.fromkeys(agg_func, values)
@@ -389,7 +407,7 @@ class GroupBy:
                 )
             return pd.DataFrame(
                 {k:
-                    self.agg(v, agg_func=f, mask=mask, transform=transform)
+                    self.agg(v, agg_func=f, mask=mask, transform=transform, margins=margins)
                     for f, (k, v) in zip(agg_func, zip(value_names, value_list))
                  },
             )
@@ -510,3 +528,50 @@ def crosstab(
     return pivot(
         index=index, columns=columns, values=None, agg_func="size", mask=mask, margins=margins
     )
+
+
+def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
+    """
+    Add a total rows to a DataFrame with multi-level index.  
+    If the DataFrame has a single level index, it adds a 'All' row with the aggregated values.
+    If the DataFrame has a multi-level index, it adds a 'All' row for each level of the index.
+    Parameters
+    ----------
+    df : pd.Series | pd.DataFrame
+        The Series or DataFrame to which the total row will be added
+    agg_func : str or callable, default "sum    
+        Aggregation function to use for calculating the total row.
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with an additional 'All' row containing the aggregated values.
+    """
+    from pandas.core.reshape.util import cartesian_product
+    data = data.sort_index()
+    index = data.index
+    if index.nlevels == 1:
+        data.loc['All'] = data.agg(agg_func)  
+        return data
+
+    new_levels = [lvl.tolist() + ['All'] for lvl in index.levels]
+    new_codes = cartesian_product([np.arange(len(lvl)) for lvl in new_levels])
+    new_index = pd.MultiIndex(codes=new_codes, levels=new_levels, names=index.names)
+    out = data.reindex(new_index)
+    keep = pd.Series(False, index=out.index)
+    keep.loc[data.index] = True
+
+    summaries = []
+    levels = list(range(data.index.nlevels))
+    for level in levels:
+        other_levels = [lvl for lvl in levels if lvl != level]
+        summary = data.groupby(level=other_levels, observed=True).agg(agg_func)
+        summary = add_row_margin(summary, agg_func)
+        summary = pd.concat({'All': summary}, names=[data.index.names[lvl] for lvl in [level, *other_levels]])
+        summary.index = summary.index.reorder_levels(np.argsort([level, *other_levels]))
+        summaries.append(summary)
+        
+    for summary in summaries:
+        out.loc[summary.index] = summary
+        keep.loc[summary.index] = True
+
+    return out[keep]
