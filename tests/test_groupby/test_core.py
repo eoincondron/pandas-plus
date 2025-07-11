@@ -183,6 +183,37 @@ class TestGroupBy:
         expected_masked = values[mask].groupby(key[mask], observed=True).sum()
         assert np.isclose(result_masked, expected_masked).all()
 
+    @pytest.mark.parametrize("use_mask", [False, True])
+    def test_large_data(self, use_mask):
+        key = pd.Series(np.random.randint(0, 1000, size=10_000_000))
+        values = pd.Series(np.random.rand(10_000_000))
+
+        gb = GroupBy(key)
+        assert gb.ngroups == 1000  # Check number of groups
+        assert gb.group_ikey.shape[0] == 10_000_000  # Check group indices length
+        assert gb._n_threads > 1
+
+        if use_mask:
+            mask = key != 1
+            pd_mask = mask
+        else:
+            mask = None     
+            pd_mask = slice(None)
+        # Test with sum
+        result_sum = gb.sum(values, mask=mask)
+        expected_sum = values[pd_mask].groupby(key[pd_mask]).sum()
+        pd.testing.assert_series_equal(result_sum, expected_sum)
+
+    def test_categorical_order_preserved(self):
+        key = pd.Categorical.from_codes([0, 1, 2, 3, 1, 2, 3], categories=['first', 'second', 'third', 'fourth'])
+        values = pd.Series(np.random.rand(len(key)))
+
+        gb = GroupBy(key)
+        result = gb.sum(values)
+
+        expected = values.groupby(key).sum().reindex(key.categories)
+        pd.testing.assert_series_equal(result, expected)
+
 
 @pytest.mark.parametrize("nlevels", [1, 2, 3])
 @pytest.mark.parametrize("aggfunc", ["sum", "min", "max"])
