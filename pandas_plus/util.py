@@ -26,20 +26,20 @@ ArrayType2D = Union[np.ndarray, pl.DataFrame, pd.DataFrame, pd.MultiIndex]
 def is_null(x):
     """
     Check if a value is considered null/NA.
-    
+
     Parameters
     ----------
     x : scalar
         Value to check
-        
+
     Returns
     -------
     bool
         True if value is null, False otherwise
-        
+
     Notes
     -----
-    This function is overloaded with specialized implementations for 
+    This function is overloaded with specialized implementations for
     various numeric types via Numba's overload mechanism.
     """
     dtype = np.asarray(x).dtype
@@ -75,6 +75,7 @@ def jit_is_null(x):
 
         return is_null
 
+
 @nb.njit(parallel=True)
 def arr_is_null(arr):
     out = np.zeros(len(arr), dtype=nb.bool_)
@@ -86,17 +87,17 @@ def arr_is_null(arr):
 def _null_value_for_array_type(arr: np.ndarray):
     """
     Get the appropriate null/NA value for the given array's dtype.
-    
+
     Parameters
     ----------
     arr : np.ndarray
         Array whose dtype determines the null value
-        
+
     Returns
     -------
     scalar
         Appropriate null value (min value for integers, NaN for floats, max for unsigned)
-        
+
     Raises
     ------
     TypeError
@@ -104,29 +105,29 @@ def _null_value_for_array_type(arr: np.ndarray):
     """
     error = TypeError(f"No null value for {arr.dtype}")
     match arr.dtype.kind:
-        case 'i':
+        case "i":
             if arr.dtype.itemsize >= 4:
                 return np.iinfo(arr.dtype).min
             else:
                 raise error
-        case 'f':
+        case "f":
             return np.array(np.nan, dtype=arr.dtype)
-        case 'u':
+        case "u":
             if arr.dtype.itemsize >= 4:
                 return np.iinfo(arr.dtype).max
             else:
                 raise error
-        case 'm':
-            return np.array('NaT', dtype='m8[ns]')
-        case 'M':
-            return np.array('NaT', dtype='m8[ns]')
+        case "m":
+            return np.array("NaT", dtype="m8[ns]")
+        case "M":
+            return np.array("NaT", dtype="m8[ns]")
         case _:
             raise error
 
 
 def _maybe_cast_timestamp_arr(arr):
-    if arr.dtype.kind in 'mM':
-        return arr.view('int64'), arr.dtype
+    if arr.dtype.kind in "mM":
+        return arr.view("int64"), arr.dtype
     else:
         return arr, arr.dtype
 
@@ -231,12 +232,12 @@ def parallel_map(
 def n_threads_from_array_length(arr_len: int):
     """
     Calculate a reasonable number of threads based on array length.
-    
+
     Parameters
     ----------
     arr_len : int
         Length of the array to be processed
-        
+
     Returns
     -------
     int
@@ -248,7 +249,7 @@ def n_threads_from_array_length(arr_len: int):
 def parallel_reduce(reducer, reduce_func_name: str, chunked_args):
     """
     Apply reduction function in parallel and combine results.
-    
+
     Parameters
     ----------
     reducer : callable
@@ -257,12 +258,12 @@ def parallel_reduce(reducer, reduce_func_name: str, chunked_args):
         Name of the reduction function ('count', 'sum', 'max', etc.)
     chunked_args : list
         Arguments for the reducer function split into chunks
-        
+
     Returns
     -------
     array-like
         Combined result after applying the reduction function to all chunks
-        
+
     Raises
     ------
     ValueError
@@ -322,11 +323,13 @@ def jit_get_first_non_null(arr):
 
         return f
 
-    elif arr.dtype.kind == 'b':
+    elif arr.dtype.kind == "b":
+
         def f(x):
             return 0, arr[0]
 
         return f
+
 
 def _scalar_func_decorator(func):
     return staticmethod(nb.njit(nogil=True)(func))
@@ -394,7 +397,9 @@ def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
 class TempName(str): ...
 
 
-def convert_data_to_arr_list_and_keys(arrays, temp_name_root: str = "_arr_") -> Tuple[List[np.ndarray], List[str]]:
+def convert_data_to_arr_list_and_keys(
+    arrays, temp_name_root: str = "_arr_"
+) -> Tuple[List[np.ndarray], List[str]]:
     """
     Convert various array-like inputs to a dictionary of named arrays.
 
@@ -428,7 +433,7 @@ def convert_data_to_arr_list_and_keys(arrays, temp_name_root: str = "_arr_") -> 
     elif isinstance(arrays, np.ndarray) and arrays.ndim == 2:
         return convert_data_to_arr_list_and_keys(list(arrays.T))
     elif isinstance(
-            arrays, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)
+        arrays, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)
     ):
         name = get_array_name(arrays)
         if name is None:
@@ -443,35 +448,35 @@ def convert_data_to_arr_list_and_keys(arrays, temp_name_root: str = "_arr_") -> 
 def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
     """
     Create a categorical with pretty labels by cutting data into bins.
-    
+
     Parameters
     ----------
     x : ArrayType1D
-        1-D array-like data to be binned. Can be np.ndarray, pd.Series, 
+        1-D array-like data to be binned. Can be np.ndarray, pd.Series,
         pl.Series, pd.Index, or pd.Categorical.
     bins : ArrayType1D or list
         Monotonically increasing array of bin edges, defining the intervals.
         Values will be sorted internally.
-        
+
     Returns
     -------
     pd.Categorical or pd.Series
-        Categorical with human-readable interval labels. If input `x` is a 
-        pd.Series, returns pd.Series with same index and name; otherwise 
+        Categorical with human-readable interval labels. If input `x` is a
+        pd.Series, returns pd.Series with same index and name; otherwise
         returns pd.Categorical.
-        
+
     Notes
     -----
     The function creates interval labels with the following format:
-    - First bin: " <= {first_bin_edge}"  
+    - First bin: " <= {first_bin_edge}"
     - Middle bins: "{left_edge + 1} - {right_edge}" for integer data,
                    "{left_edge} - {right_edge}" for float data
     - Last bin: " > {last_bin_edge}"
-    
-    For integer data, the left edge is incremented by 1 to create 
-    non-overlapping intervals. NaN values in float arrays are assigned 
+
+    For integer data, the left edge is incremented by 1 to create
+    non-overlapping intervals. NaN values in float arrays are assigned
     code -1 (missing category).
-    
+
     Examples
     --------
     >>> import numpy as np
@@ -484,18 +489,18 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
     """
     bins = np.sort(bins)
     np_type = np.asarray(x).dtype
-    is_integer = np_type.kind in 'ui' and bins.dtype.kind in 'ui'
+    is_integer = np_type.kind in "ui" and bins.dtype.kind in "ui"
 
-    labels = [f' <= {bins[0]}']
+    labels = [f" <= {bins[0]}"]
     for left, right in zip(bins, bins[1:]):
         left = left + is_integer
         if left == right:
             labels.append(str(left))
         else:
-            labels.append(f'{left} - {right}')
-    labels.append(f' > {bins[-1]}')
+            labels.append(f"{left} - {right}")
+    labels.append(f" > {bins[-1]}")
     codes = bins.searchsorted(x)
-    if np_type.kind == 'f':
+    if np_type.kind == "f":
         codes[np.isnan(x)] = -1
     out = pd.Categorical.from_codes(codes, labels)
     if isinstance(x, pd.Series):
@@ -523,29 +528,27 @@ def nb_dot(a: Union[np.ndarray, pd.DataFrame, pl.DataFrame], b: ArrayType1D):
         arr_list = [np.asarray(a[col]) for col in a.columns]
 
     kinds = [a.dtype.kind for a in arr_list]
-    return_type = np.float64 if 'f' in kinds else np.int64
+    return_type = np.float64 if "f" in kinds else np.int64
 
     if not len(a):
         out = np.zeros(0, dtype=return_type)
     else:
-        out = _nb_dot(
-        arr_list,
-        np.asarray(b),
-        out=np.zeros(len(a), dtype=return_type)
-    )
+        out = _nb_dot(arr_list, np.asarray(b), out=np.zeros(len(a), dtype=return_type))
     if isinstance(a, pd.DataFrame):
         out = pd.Series(out, a.index)
     return out
 
 
-def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allow_duplicates=True):
+def bools_to_categorical(
+    df: pd.DataFrame, sep: str = " & ", na_rep="None", allow_duplicates=True
+):
     """
     Convert a boolean DataFrame to a categorical Series with combined labels.
-    
-    This function creates a categorical representation where each unique row 
-    pattern in the boolean DataFrame becomes a category. Column names where 
+
+    This function creates a categorical representation where each unique row
+    pattern in the boolean DataFrame becomes a category. Column names where
     True values occur are joined with a separator to form the category labels.
-    
+
     Parameters
     ----------
     df : pd.DataFrame
@@ -560,44 +563,44 @@ def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allo
     allow_duplicates : bool, default True
         If True, allows multiple True values per row (joined with separator).
         If False, raises ValueError when any row has more than one True value.
-        
+
     Returns
     -------
     pd.Series
         Series with categorical dtype containing the combined labels.
         Index matches the input DataFrame's index.
-        
+
     Raises
     ------
     ValueError
-        If `na_rep` matches any column name in the DataFrame, or if 
+        If `na_rep` matches any column name in the DataFrame, or if
         `allow_duplicates` is False and any row contains multiple True values.
-        
+
     Notes
     -----
     The function uses numpy.unique to identify distinct row patterns,
     making it memory efficient for DataFrames with many repeated patterns.
-    
+
     Categories are created in the order they appear in the unique row patterns,
     not necessarily in alphabetical order.
-    
+
     Examples
     --------
     >>> import pandas as pd
     >>> df = pd.DataFrame({
     ...     'A': [True, False, True, False],
-    ...     'B': [False, True, False, True], 
+    ...     'B': [False, True, False, True],
     ...     'C': [False, False, True, True]
     ... })
     >>> result = bools_to_categorical(df)
     >>> result.cat.categories.tolist()
     ['A', 'B', 'A & C', 'B & C']
-    
+
     >>> # Custom separator
     >>> result = bools_to_categorical(df, sep=' | ')
     >>> result[2]  # Row with A=True, C=True
     'A | C'
-    
+
     >>> # All False row handling
     >>> df_with_empty = pd.DataFrame({
     ...     'X': [True, False],
@@ -610,18 +613,20 @@ def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allo
     if na_rep in df:
         raise ValueError(f"na_rep={na_rep} clashes with one of the column names")
     min_bits = min([x for x in [8, 16, 32, 64] if x > df.shape[1]])
-    bit_mask = nb_dot(df, 2 ** np.arange(df.shape[1], dtype=f'int{min_bits}'))
+    bit_mask = nb_dot(df, 2 ** np.arange(df.shape[1], dtype=f"int{min_bits}"))
     uniques, codes = np.unique(bit_mask, return_inverse=True)
 
     cats = []
     for bit_mask in uniques:
         labels = []
         for i, col in enumerate(df.columns):
-            if bit_mask & 2 ** i:
+            if bit_mask & 2**i:
                 labels.append(col)
         if labels:
             if not allow_duplicates and len(labels) > 1:
-                raise ValueError("Some rows have more than one True value and allow_duplicates is False")
+                raise ValueError(
+                    "Some rows have more than one True value and allow_duplicates is False"
+                )
             cat = sep.join(labels)
         else:
             cat = na_rep
@@ -635,17 +640,17 @@ def bools_to_categorical(df: pd.DataFrame, sep: str = " & ", na_rep="None", allo
 
 def factorize_1d(
     values,
-    sort: 'bool' = False,
-    size_hint: 'int | None' = None,
-) -> 'tuple[np.ndarray, np.ndarray | pd.Index]':
+    sort: "bool" = False,
+    size_hint: "int | None" = None,
+) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
     """
     Encode the object as an enumerated type or categorical variable.
-    
+
     This method is useful for obtaining a numeric representation of an
     array when all that matters is identifying distinct values. factorize_1d
     is available as both a top-level function :func:`~pandas_plus.util.factorize_1d`,
     and as a method.
-    
+
     Parameters
     ----------
     values : array-like
@@ -657,7 +662,7 @@ def factorize_1d(
     size_hint : int, optional
         Hint to the algorithm for the expected number of unique values. This
         can be used to pre-allocate the return arrays.
-        
+
     Returns
     -------
     codes : np.ndarray[int64]
@@ -668,65 +673,65 @@ def factorize_1d(
         this will be the categorical's categories. Otherwise, it will be a
         numpy array or pandas Index containing the unique values in the order
         they first appeared (or sorted order if sort=True).
-        
+
     See Also
     --------
     factorize_2d : Factorize multiple 1-D arrays simultaneously.
     pandas.factorize : pandas equivalent function.
     pandas.Categorical : Represent a categorical variable in pandas.
-    
+
     Notes
     -----
     For pandas Categorical inputs, this function returns the categorical's
     codes and categories directly, ignoring the sort and size_hint parameters.
-    
+
     Missing values (NaN, None) are assigned code -1 and are not included in
     the uniques array.
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> import pandas as pd
     >>> from pandas_plus.util import factorize_1d
-    
+
     Basic usage with a list:
-    
+
     >>> values = [1, 2, 3, 1, 2, 3]
     >>> codes, uniques = factorize_1d(values)
     >>> codes
     array([0, 1, 2, 0, 1, 2])
     >>> uniques
     array([1, 2, 3])
-    
+
     With string values:
-    
+
     >>> values = ['a', 'b', 'c', 'a', 'b']
     >>> codes, uniques = factorize_1d(values)
     >>> codes
     array([0, 1, 2, 0, 1])
     >>> uniques
     array(['a', 'b', 'c'], dtype='<U1')
-    
+
     With sorting enabled:
-    
+
     >>> values = ['c', 'a', 'b', 'c', 'a']
     >>> codes, uniques = factorize_1d(values, sort=True)
     >>> codes
     array([2, 0, 1, 2, 0])
     >>> uniques
     array(['a', 'b', 'c'], dtype='<U1')
-    
+
     With NaN values:
-    
+
     >>> values = [1.0, 2.0, np.nan, 1.0, np.nan]
     >>> codes, uniques = factorize_1d(values)
     >>> codes
     array([ 0,  1, -1,  0, -1])
     >>> uniques
     array([1., 2.])
-    
+
     With pandas Categorical:
-    
+
     >>> cat = pd.Categorical(['a', 'b', 'c', 'a', 'b'])
     >>> codes, uniques = factorize_1d(cat)
     >>> codes
@@ -738,18 +743,20 @@ def factorize_1d(
     try:
         return np.asarray(values.cat.codes), values.cat.categories
     except AttributeError:
-        return pd.factorize(values, sort=sort, use_na_sentinel=True, size_hint=size_hint)
+        return pd.factorize(
+            values, sort=sort, use_na_sentinel=True, size_hint=size_hint
+        )
 
 
 def factorize_2d(*vals, sort: bool = False):
     """
     Encode multiple 1-D arrays as enumerated types or categorical variables.
-    
-    This function factorizes multiple arrays simultaneously, creating a 
+
+    This function factorizes multiple arrays simultaneously, creating a
     MultiIndex that represents all unique combinations of values across
     the input arrays. This is useful for creating group identifiers from
     multiple categorical variables.
-    
+
     Parameters
     ----------
     *vals : array-like
@@ -760,7 +767,7 @@ def factorize_2d(*vals, sort: bool = False):
         If True, the unique combinations of values will be sorted before
         factorization. If False, the order of combinations will be based on
         the order in which they first appear in the input arrays.
-        
+
     Returns
     -------
     codes : np.ndarray[int64]
@@ -771,40 +778,40 @@ def factorize_2d(*vals, sort: bool = False):
         A MultiIndex containing all unique combinations of values from the
         input arrays. The number of levels equals the number of input arrays.
         Each level contains the unique values from the corresponding input array.
-        
+
     Raises
     ------
     ValueError
         If input arrays have different lengths.
-        
+
     See Also
     --------
     factorize_1d : Factorize a single 1-D array.
     pandas.factorize : pandas equivalent function for single arrays.
     pandas.MultiIndex.from_product : Create MultiIndex from the cartesian product of iterables.
     pandas.core.sorting.get_group_index : Get group index from multiple arrays.
-    
+
     Notes
     -----
     The function internally uses `factorize_1d` on each input array, then
     combines the results using pandas' `get_group_index` function to create
     a unified group identifier.
-    
+
     Missing values (NaN, None) in any array will be treated as distinct
     values and will contribute to unique combinations.
-    
+
     The resulting MultiIndex is created using `pd.MultiIndex.from_product`,
     which means it contains all possible combinations of the unique values
     from each array, not just the combinations that actually appear in the data.
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> import pandas as pd
     >>> from pandas_plus.util import factorize_2d
-    
+
     Basic usage with two arrays:
-    
+
     >>> vals1 = [1, 2, 3, 1, 2]
     >>> vals2 = ['a', 'b', 'c', 'a', 'b']
     >>> codes, labels = factorize_2d(vals1, vals2)
@@ -815,9 +822,9 @@ def factorize_2d(*vals, sort: bool = False):
                 (2, 'b'),
                 (3, 'c')],
                names=[None, None])
-    
+
     With three arrays:
-    
+
     >>> vals1 = [1, 1, 2, 2]
     >>> vals2 = ['x', 'y', 'x', 'y']
     >>> vals3 = [True, False, True, False]
@@ -826,17 +833,17 @@ def factorize_2d(*vals, sort: bool = False):
     array([0, 1, 2, 3])
     >>> labels.nlevels
     3
-    
+
     Identical combinations get same codes:
-    
+
     >>> vals1 = [1, 2, 1, 2, 1]
     >>> vals2 = ['a', 'b', 'a', 'b', 'a']
     >>> codes, labels = factorize_2d(vals1, vals2)
     >>> codes
     array([0, 1, 0, 1, 0])
-    
+
     With pandas Series input:
-    
+
     >>> s1 = pd.Series([1, 2, 3])
     >>> s2 = pd.Series(['x', 'y', 'z'])
     >>> codes, labels = factorize_2d(s1, s2)
@@ -847,9 +854,9 @@ def factorize_2d(*vals, sort: bool = False):
                 (2, 'y'),
                 (3, 'z')],
                names=[None, None])
-    
+
     With missing values:
-    
+
     >>> vals1 = [1, 2, np.nan, 1, np.nan]
     >>> vals2 = ['a', 'b', 'c', 'a', 'c']
     >>> codes, labels = factorize_2d(vals1, vals2)
@@ -857,12 +864,14 @@ def factorize_2d(*vals, sort: bool = False):
     array([0, 1, 2, 0, 2])
     """
     codes, labels = map(list, zip(*[factorize_1d(v, sort=sort) for v in vals]))
-    multi_codes = get_group_index(codes, tuple(map(len, labels)), sort=False, xnull=True)
+    multi_codes = get_group_index(
+        codes, tuple(map(len, labels)), sort=False, xnull=True
+    )
     from pandas.core.reshape.util import cartesian_product
 
     index = pd.MultiIndex(
         codes=cartesian_product([np.arange(len(lvl)) for lvl in labels]),
         levels=labels,
-        names=[get_array_name(v) for v in vals]
+        names=[get_array_name(v) for v in vals],
     )
     return multi_codes, index

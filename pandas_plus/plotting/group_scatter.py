@@ -12,10 +12,10 @@ from pandas_plus.util import ArrayType1D
 class GroupScatter:
     """
     Class for creating group scatter plots with regression lines.
-    
+
     This class groups x values into bins and calculates the mean y value for each bin,
     then fits a regression line to represent the relationship between x and y.
-    
+
     Parameters
     ----------
     x : ArrayType1D
@@ -33,6 +33,7 @@ class GroupScatter:
     fit_intercept : bool, default True
         Whether to fit an intercept term in the regression
     """
+
     x: ArrayType1D
     y: ArrayType1D
     n_groups: int = 25
@@ -61,18 +62,18 @@ class GroupScatter:
     def _calculate_bins(self):
         """
         Group x values into bins and calculate mean y value for each bin.
-        
+
         Creates two attributes:
         - bins: pandas.qcut bins for the x values
         - y_means: mean y value for each bin
         """
-        self.bins = pd.qcut(self._x, q=self.n_groups, duplicates='drop')
+        self.bins = pd.qcut(self._x, q=self.n_groups, duplicates="drop")
         self.y_means = pd.Series(self._y).groupby(self.bins, observed=True).mean()
 
     def _calculate_regression(self):
         """
         Fit a regression line to the data.
-        
+
         Creates several attributes:
         - fit: The fitted sklearn LinearRegression model
         - r_squared: R^2 score of the regression
@@ -94,15 +95,15 @@ class GroupScatter:
     def plot(self, **plot_kwargs):
         """
         Create a scatter plot with regression line.
-        
+
         The plot shows the mean y values for each bin of x values (as points)
         and the regression line fit to the original data.
-        
+
         Parameters
         ----------
         **plot_kwargs
             Additional keyword arguments passed to pandas.Series.plot
-            
+
         Returns
         -------
         matplotlib.axes.Axes

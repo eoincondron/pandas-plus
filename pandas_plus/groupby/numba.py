@@ -7,8 +7,15 @@ from copy import deepcopy
 import numba as nb
 import numpy as np
 
-from ..util import (ArrayType1D, check_data_inputs_aligned, is_null, _null_value_for_array_type,
-                    _maybe_cast_timestamp_arr, parallel_map, NumbaReductionOps)
+from ..util import (
+    ArrayType1D,
+    check_data_inputs_aligned,
+    is_null,
+    _null_value_for_array_type,
+    _maybe_cast_timestamp_arr,
+    parallel_map,
+    NumbaReductionOps,
+)
 from .. import nanops
 
 
@@ -32,9 +39,6 @@ def _find_first_or_last_n(
             out[k, j] = i
             seen[k] += 1
 
-        # max_seen = max(min_seen, seen[k])
-        # if max_seen == n:
-        #     break
     return out
 
 
@@ -54,7 +58,7 @@ def _group_by_iterator(
                 continue
             target[key] += 1
         return target
-    
+
     seen = np.full(len(target), not must_see)
     for i in range(len(group_key)):
         key = group_key[i]
@@ -82,7 +86,7 @@ def _prepare_mask_for_numba(mask):
 
 
 def _default_initial_value_for_type(arr):
-    if arr.dtype.kind == 'b':
+    if arr.dtype.kind == "b":
         return False
     else:
         return _null_value_for_array_type(arr)
@@ -102,15 +106,17 @@ def _chunk_groupby_args(
     values = np.asarray(values)
 
     kwargs = locals().copy()
-    del kwargs['n_chunks']
-    shared_kwargs = {k: kwargs[k] for k in ['target', 'reduce_func', 'must_see']}
+    del kwargs["n_chunks"]
+    shared_kwargs = {k: kwargs[k] for k in ["target", "reduce_func", "must_see"]}
 
     chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
-    for name in ['group_key', 'values', 'mask']:
+    for name in ["group_key", "values", "mask"]:
         for chunk_no, arr in enumerate(np.array_split(kwargs[name], n_chunks)):
             chunked_kwargs[chunk_no][name] = arr
 
-    chunked_args = [signature(_group_by_iterator).bind(**kwargs) for kwargs in chunked_kwargs]
+    chunked_args = [
+        signature(_group_by_iterator).bind(**kwargs) for kwargs in chunked_kwargs
+    ]
 
     return chunked_args
 
@@ -150,31 +156,28 @@ def _group_func_wrap(
         out = _group_by_iterator(**kwargs)
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
-        chunks = parallel_map(
-            _group_by_iterator, [args.args for args in chunked_args]
-        )
+        chunks = parallel_map(_group_by_iterator, [args.args for args in chunked_args])
         arr = np.vstack(chunks)
         chunk_reduce = "sum" if reduce_func_name == "count" else reduce_func_name
         out = nanops.reduce_2d(chunk_reduce, arr)
 
-    if reduce_func_name == 'count':
+    if reduce_func_name == "count":
         out = out.astype(np.int64)
-    elif orig_type.kind in 'mM':
+    elif orig_type.kind in "mM":
         out = out.astype(orig_type)
 
     return out
 
 
-
 def group_size(
-    group_key: ArrayType1D, 
+    group_key: ArrayType1D,
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     Count the number of elements in each group defined by group_key.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -191,7 +194,7 @@ def group_size(
     ArrayType1D
         An array with the count of elements in each group.
     """
-    return _group_func_wrap('count', values=None, **locals())
+    return _group_func_wrap("count", values=None, **locals())
 
 
 def group_count(
@@ -201,19 +204,19 @@ def group_count(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    """ Count the number of non-null values in each group.
+    """Count the number of non-null values in each group.
     Parameters
     ----------
     group_key : ArrayType1D
-        The array defining the groups.       
+        The array defining the groups.
     values : ArrayType1D
         The array of values to count.
     ngroups : int
         The number of unique groups in `group_key`.
     mask : Optional[ArrayType1D], default None
-        A mask array to filter the values. If provided, only non-null values where the mask                 
+        A mask array to filter the values. If provided, only non-null values where the mask
         is True will be counted.
-    n_threads : int, default 1  
+    n_threads : int, default 1
         The number of threads to use for parallel processing. If set to 1, the function will run in a single thread.
     Returns
     -------
@@ -231,10 +234,10 @@ def group_count(
     >>> values = np.array([1, 2, np.nan, 3, 4, np.nan, 5])
     >>> ngroups = 3
     >>> counts = group_count(group_key, values, ngroups)
-    >>> print(counts)      
+    >>> print(counts)
     [2 2 1]
-    """             
-    initial_value = 0   
+    """
+    initial_value = 0
     return _group_func_wrap("count", **locals())
 
 
@@ -245,8 +248,8 @@ def group_sum(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    if values.dtype.kind == 'f':
-        initial_value = 0.
+    if values.dtype.kind == "f":
+        initial_value = 0.0
     else:
         initial_value = 0
     return _group_func_wrap("sum", **locals())
@@ -263,8 +266,8 @@ def group_mean(
     sum = group_sum(**kwargs)
     int_sum, orig_type = _maybe_cast_timestamp_arr(sum)
     count = group_count(**kwargs)
-    mean = (int_sum / count)
-    if values.dtype.kind in 'mM':
+    mean = int_sum / count
+    if values.dtype.kind in "mM":
         mean = mean.astype(orig_type)
     return mean
 
@@ -329,8 +332,9 @@ def _wrap_numba(nb_func):
     @wraps(nb_func.py_func)
     def wrapper(*args, **kwargs):
         bound_args = inspect.signature(nb_func.py_func).bind(*args, **kwargs)
-        args = [np.asarray(x) if np.ndim(x) > 0 else x for x in  bound_args.args]
+        args = [np.asarray(x) if np.ndim(x) > 0 else x for x in bound_args.args]
         return nb_func(*args)
+
     wrapper.__nb_func__ = nb_func
 
     return wrapper
@@ -339,7 +343,9 @@ def _wrap_numba(nb_func):
 @check_data_inputs_aligned("group_key", "values")
 @_wrap_numba
 @nb.njit
-def group_nearby_members(group_key: np.ndarray, values: np.ndarray, max_diff: float | int, n_groups: int):
+def group_nearby_members(
+    group_key: np.ndarray, values: np.ndarray, max_diff: float | int, n_groups: int
+):
     """
     Given a vector of integers defining groups and an aligned numerical vector, values,
     generate subgroups where the differences between consecutive members of a group are below a threshold.

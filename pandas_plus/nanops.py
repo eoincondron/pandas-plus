@@ -1,18 +1,23 @@
-
 import numba as nb
 import numpy as np
 import pandas as pd
 from pandas.core import nanops
 
-from .util import (is_null, n_threads_from_array_length, parallel_map,
-                   _null_value_for_array_type, _get_first_non_null, NumbaReductionOps)
+from .util import (
+    is_null,
+    n_threads_from_array_length,
+    parallel_map,
+    _null_value_for_array_type,
+    _get_first_non_null,
+    NumbaReductionOps,
+)
 
 
 @nb.njit(nogil=True)
 def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
     """
     Apply a reduction function to an array, with NA/null handling.
-    
+
     Parameters
     ----------
     reduce_func : callable
@@ -23,12 +28,12 @@ def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
         Whether to skip NA/null values
     initial_value : scalar, optional
         Starting value for the reduction
-        
+
     Returns
     -------
     scalar
         Result of the reduction operation
-        
+
     Notes
     -----
     This function is JIT-compiled with Numba for performance.
@@ -37,7 +42,7 @@ def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
         if skipna:
             loc, out = _get_first_non_null(arr)
             start = loc + 1
-            if loc == -1:    # all null
+            if loc == -1:  # all null
                 return arr[0]
         else:
             start, out = 1, arr[0]
@@ -61,7 +66,7 @@ def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
 def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = None):
     """
     Apply a reduction function to a 1D array, with optional parallelization.
-    
+
     Parameters
     ----------
     reduce_func_name : str
@@ -73,14 +78,14 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
     n_threads : int, optional
         Number of threads to use for parallel processing. If None,
         determines automatically based on array length.
-        
+
     Returns
     -------
     scalar
         Result of the reduction operation
     """
     reduce_func = getattr(NumbaReductionOps, reduce_func_name)
-    
+
     # Check for datetime64 or timedelta64 dtypes
     is_datetime = np.issubdtype(arr.dtype, np.datetime64)
     is_timedelta = np.issubdtype(arr.dtype, np.timedelta64)
@@ -97,13 +102,13 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
             skipna=True,
             initial_value=int(0),
         )
-        chunk_reduction = 'sum'
+        chunk_reduction = "sum"
     elif "sum" in reduce_func_name:
         kwargs = dict(
             skipna=skipna,
             initial_value=0,
         )
-        chunk_reduction = 'sum'
+        chunk_reduction = "sum"
     else:
         kwargs = dict(
             skipna=skipna,
@@ -113,13 +118,15 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
 
     # Convert datetime64/timedelta64 to int64 view for numba operations
     if is_datetime or is_timedelta:
-        arr = arr.view('int64')
-    
+        arr = arr.view("int64")
+
     if n_threads is None:
         n_threads = n_threads_from_array_length(len(arr))
 
     if n_threads == 1:
-        result = output_converter(_nb_reduce(reduce_func=reduce_func, arr=arr, **kwargs))
+        result = output_converter(
+            _nb_reduce(reduce_func=reduce_func, arr=arr, **kwargs)
+        )
     else:
         chunks = parallel_map(
             lambda a: _nb_reduce(reduce_func=reduce_func, arr=a, **kwargs),
@@ -139,7 +146,7 @@ def reduce_2d(
 ):
     """
     Apply a reduction function to a 2D array along a specified axis.
-    
+
     Parameters
     ----------
     reduce_func_name : str
@@ -152,7 +159,7 @@ def reduce_2d(
         Number of threads to use for parallel processing
     axis : int, default 0
         Axis along which to perform the reduction (0=rows, 1=columns)
-        
+
     Returns
     -------
     ndarray
@@ -170,10 +177,17 @@ def reduce_2d(
     return np.array(results)
 
 
-def reduce(arr, reduce_func_name: str, skipna=True, min_count=0, axis=None, n_threads: int = None):
+def reduce(
+    arr,
+    reduce_func_name: str,
+    skipna=True,
+    min_count=0,
+    axis=None,
+    n_threads: int = None,
+):
     """
     Apply a reduction function to an array with NA handling and optional parallelization.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -188,7 +202,7 @@ def reduce(arr, reduce_func_name: str, skipna=True, min_count=0, axis=None, n_th
         Axis along which to perform the reduction for 2D arrays
     n_threads : int, optional
         Number of threads to use for parallel processing
-        
+
     Returns
     -------
     scalar or ndarray
@@ -207,10 +221,16 @@ def reduce(arr, reduce_func_name: str, skipna=True, min_count=0, axis=None, n_th
         return reduce_2d(reduce_func_name, arr, axis=axis)
 
 
-def nansum(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None):
+def nansum(
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+):
     """
     Sum of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -223,7 +243,7 @@ def nansum(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
         Axis along which to perform the sum for 2D arrays
     n_threads : int, optional
         Number of threads to use for parallel processing
-        
+
     Returns
     -------
     scalar or ndarray
@@ -235,14 +255,14 @@ def nansum(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
 def count(arr, axis: int = None):
     """
     Count non-NA/non-null values in an array.
-    
+
     Parameters
     ----------
     arr : array-like
         Array to count values in
     axis : int, optional
         Axis along which to count for 2D arrays
-        
+
     Returns
     -------
     scalar or ndarray
@@ -251,10 +271,16 @@ def count(arr, axis: int = None):
     return reduce(reduce_func_name="count", **locals())
 
 
-def nanmean(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None):
+def nanmean(
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+):
     """
     Mean of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -267,7 +293,7 @@ def nanmean(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_th
         Axis along which to calculate mean for 2D arrays
     n_threads : int, optional
         Number of threads to use for parallel processing
-        
+
     Returns
     -------
     scalar or ndarray
@@ -280,10 +306,16 @@ def nanmean(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_th
     return sum / n
 
 
-def nanmax(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None):
+def nanmax(
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+):
     """
     Maximum of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -296,7 +328,7 @@ def nanmax(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
         Axis along which to find maximum for 2D arrays
     n_threads : int, optional
         Number of threads to use for parallel processing
-        
+
     Returns
     -------
     scalar or ndarray
@@ -305,10 +337,16 @@ def nanmax(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
     return reduce(reduce_func_name="max", **locals())
 
 
-def nanmin(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None):
+def nanmin(
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+):
     """
     Minimum of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -321,7 +359,7 @@ def nanmin(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
         Axis along which to find minimum for 2D arrays
     n_threads : int, optional
         Number of threads to use for parallel processing
-        
+
     Returns
     -------
     scalar or ndarray
@@ -331,11 +369,16 @@ def nanmin(arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_thr
 
 
 def nanvar(
-    arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None, ddof: int = 1
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+    ddof: int = 1,
 ):
     """
     Variance of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -350,7 +393,7 @@ def nanvar(
         Number of threads to use for parallel processing
     ddof : int, default 1
         Delta degrees of freedom for calculating variance
-        
+
     Returns
     -------
     scalar or ndarray
@@ -361,18 +404,23 @@ def nanvar(
     n = count(arr, axis=axis)
     sum_sq = reduce(reduce_func_name="sum_square", **kwargs)
     sum = reduce(reduce_func_name="sum", **kwargs)
-    d = (n - ddof)
+    d = n - ddof
     if d == 0 or n == 0:
         return _null_value_for_array_type(arr)
     return (sum_sq - sum**2 / n) / d
 
 
 def nanstd(
-    arr, skipna: bool = True, min_count: int = 0, axis: int = None, n_threads: int = None, ddof: int = 1
+    arr,
+    skipna: bool = True,
+    min_count: int = 0,
+    axis: int = None,
+    n_threads: int = None,
+    ddof: int = 1,
 ):
     """
     Standard deviation of array elements, ignoring NaNs by default.
-    
+
     Parameters
     ----------
     arr : array-like
@@ -387,7 +435,7 @@ def nanstd(
         Number of threads to use for parallel processing
     ddof : int, default 1
         Delta degrees of freedom for calculating standard deviation
-        
+
     Returns
     -------
     scalar or ndarray
