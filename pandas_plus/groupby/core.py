@@ -470,7 +470,7 @@ class GroupBy:
     ) -> pd.Series | pd.DataFrame:
         # check for nullity
         kwargs = dict(agg_func=agg_func, margins=margins, values=values)
-        return self.agg(**kwargs, mask=subset_mask & global_mask) / self.agg(**kwargs, global_mask)
+        return self.agg(**kwargs, mask=subset_mask & global_mask) / self.agg(**kwargs, mask=global_mask)
 
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
