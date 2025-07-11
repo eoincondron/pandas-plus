@@ -741,7 +741,7 @@ def factorize_1d(
         return pd.factorize(values, sort=sort, use_na_sentinel=True, size_hint=size_hint)
 
 
-def factorize_2d(*vals):
+def factorize_2d(*vals, sort: bool = False):
     """
     Encode multiple 1-D arrays as enumerated types or categorical variables.
     
@@ -756,6 +756,10 @@ def factorize_2d(*vals):
         Variable number of 1-D array-like objects to be factorized together.
         Each array should have the same length. Can be any combination of
         lists, numpy arrays, pandas Series, or pandas Categorical objects.
+    sort : bool, default False
+        If True, the unique combinations of values will be sorted before
+        factorization. If False, the order of combinations will be based on
+        the order in which they first appear in the input arrays.
         
     Returns
     -------
@@ -852,7 +856,7 @@ def factorize_2d(*vals):
     >>> codes  # NaN combinations get unique codes
     array([0, 1, 2, 0, 2])
     """
-    codes, labels = map(list, zip(*map(factorize_1d, vals)))
+    codes, labels = map(list, zip(*[factorize_1d(v, sort=sort) for v in vals]))
     multi_codes = get_group_index(codes, tuple(map(len, labels)), sort=False, xnull=True)
     from pandas.core.reshape.util import cartesian_product
 

@@ -181,7 +181,7 @@ class GroupBy:
         The keys to group by. Can be a single array-like object or a collection of them.
     """
 
-    def __init__(self, group_keys: ArrayCollection):
+    def __init__(self, group_keys: ArrayCollection, sort: bool = True):
         """
         Initialize the GroupBy object with the provided group keys.
         Parameters
@@ -196,9 +196,9 @@ class GroupBy:
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
         
         if len(group_key_list) == 1:
-            self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
+            self._group_ikey, self._result_index = factorize_1d(group_key_list[0], sort=sort)
         else:
-            self._group_ikey, self._result_index = factorize_2d(*group_key_list)
+            self._group_ikey, self._result_index = factorize_2d(*group_key_list, sort=sort)
 
         self._result_index.names = [
             None if isinstance(key, TempName) else key for key in group_key_names
