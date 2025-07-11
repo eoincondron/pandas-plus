@@ -181,8 +181,18 @@ class GroupBy:
     """
 
     def __init__(self, group_keys: ArrayCollection):
+        """
+        Initialize the GroupBy object with the provided group keys.
+        Parameters
+        ----------
+        group_keys : ArrayCollection
+            The keys to group by, which can be a single array-like object or a collection of them.
+        """
+        if isinstance(group_keys, GroupBy):
+            self._group_ikey, self._result_index = group_keys.group_ikey, group_keys.result_index
+            return
+        
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
-        indexes = _get_indexes_from_values(group_key_list)
         
         if len(group_key_list) == 1:
             self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
