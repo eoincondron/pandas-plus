@@ -25,11 +25,18 @@ def _find_first_or_last_n(
     ngroups: np.ndarray,
     n: int,
     mask: Optional[np.ndarray] = None,
+    forward: bool = True,
 ):
     out = np.full((ngroups, n), -1, dtype=np.int64)
     seen = np.zeros(ngroups, dtype=np.int16)
     masked = mask is not None
-    for i, k in enumerate(group_key):
+    if forward:
+        rng = range(len(group_key))
+    else:
+        rng = range(len(group_key) - 1, -1, -1)
+
+    for i in rng:
+        k = group_key[i]
         if k < 0:
             continue
         if masked and not mask[i]:
@@ -39,7 +46,66 @@ def _find_first_or_last_n(
             out[k, j] = i
             seen[k] += 1
 
+    if not forward:
+        out = out[:, ::-1]
+
     return out
+
+
+def find_first_n(
+    group_key: ArrayType1D,
+    ngroups: int,
+    n: int,
+    mask: Optional[ArrayType1D] = None,
+):
+    """
+    Find the first n indices for each group in group_key.
+
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups.
+    ngroups : int
+        The number of unique groups in group_key.
+    n : int
+        The number of indices to find for each group.
+    mask : Optional[ArrayType1D]
+        A boolean mask to filter the elements before finding indices.
+
+    Returns
+    -------
+    np.ndarray
+        An array of shape (ngroups, n) with the first n indices for each group.
+    """
+    return _find_first_or_last_n(group_key, ngroups, n, mask, forward=True)
+
+
+def find_last_n(
+    group_key: ArrayType1D,
+    ngroups: int,
+    n: int,
+    mask: Optional[ArrayType1D] = None,
+):
+    """
+    Find the last n indices for each group in group_key.
+
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups.
+    ngroups : int
+        The number of unique groups in group_key.
+    n : int
+        The number of indices to find for each group.
+    mask : Optional[ArrayType1D]
+        A boolean mask to filter the elements before finding indices.
+
+    Returns
+    -------
+    np.ndarray
+        An array of shape (ngroups, n) with the last n indices for each group.
+    """
+    return _find_first_or_last_n(group_key, ngroups, n, mask, forward=False)
 
 
 @nb.njit(nogil=True, fastmath=False)
