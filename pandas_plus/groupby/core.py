@@ -2,6 +2,7 @@ from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
 from typing import Callable, List, Optional
 from inspect import signature
+import multiprocessing
 
 import numpy as np
 import pandas as pd
@@ -250,6 +251,13 @@ class GroupBy:
             True if any group key contains null values, False otherwise
         """
         return self.group_ikey.min() < 0
+    
+    @property
+    def _n_threads(self) -> int:
+        n_cpus = multiprocessing.cpu_count()
+        n_threads = min((n_cpus - 1) * 2, len(self.group_ikey) // 1_000_000)
+        n_threads = max(n_threads, 1)
+        return n_threads
 
     def _apply_gb_func(
         self,
@@ -296,7 +304,7 @@ class GroupBy:
 
         results = map(
             lambda v: func(
-                group_key=self.group_ikey, values=v, mask=mask, ngroups=self.ngroups + 1
+                group_key=self.group_ikey, values=v, mask=mask, ngroups=self.ngroups + 1, n_threads=self._n_threads
             ),
             np_values,
         )
@@ -332,7 +340,7 @@ class GroupBy:
     def size(
         self, mask: Optional[ArrayType1D] = None, transform: bool = False, margins: bool = False, observed_only: bool = True
     ):
-        out = numba_funcs.group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1)
+        out = numba_funcs.group_size(group_key=self.group_ikey, mask=mask, ngroups=self.ngroups + 1, n_threads=self._n_threads)
         if transform:
             return out[self.group_ikey]
         
