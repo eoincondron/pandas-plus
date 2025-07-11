@@ -464,7 +464,7 @@ class GroupBy:
         )
     
 
-def pivot(
+def pivot_table(
     index: ArrayCollection,
     columns: ArrayCollection,
     values: ArrayCollection,
@@ -508,7 +508,7 @@ def pivot(
             margins=margins,
         )
 
-    out = out.unstack(level=[i + len(index) for i, _ in enumerate(columns)], fill_value=0)
+    out = out.unstack(level=[i + len(index) for i, _ in enumerate(columns)])
 
     return out  
 
@@ -524,7 +524,7 @@ def crosstab(
     
     Parameters and returns are the same as for pivot.
     """
-    return pivot(
+    return pivot_table(
         index=index, columns=columns, values=None, agg_func="size", mask=mask, margins=margins
     )
 
