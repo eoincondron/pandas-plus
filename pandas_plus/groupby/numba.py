@@ -198,9 +198,7 @@ def _chunk_groupby_args(
         for chunk_no, arr in enumerate(chunks):
             chunked_kwargs[chunk_no][name] = arr
 
-    chunked_args = [
-        signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs
-    ]
+    chunked_args = [signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs]
 
     return chunked_args
 
@@ -234,7 +232,7 @@ def _group_func_wrap(
         iterator = _group_by_counter
     else:
         iterator = _group_by_reduce
-    
+
     kwargs = dict(
         group_key=group_key,
         values=values,
@@ -328,7 +326,7 @@ def group_count(
     >>> counts = group_count(group_key, values, ngroups)
     >>> print(counts)
     [2 2 1]
-    """ 
+    """
     return _group_func_wrap(reduce_func_name=None, **locals())
 
 

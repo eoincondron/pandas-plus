@@ -142,7 +142,7 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
 
 
 def reduce_2d(
-    reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 1, axis=0
+    reduce_func_name: str, arr, skipna: bool = True, n_threads: int = None, axis=0
 ):
     """
     Apply a reduction function to a 2D array along a specified axis.
@@ -165,11 +165,9 @@ def reduce_2d(
     ndarray
         1D array of results from the reduction operation
     """
-    if n_threads is None:
-        n_threads = n_threads_from_array_length(arr.size)
     if axis == 0:
         arr = arr.T
-    mapper = lambda x: reduce_1d(reduce_func_name, x, skipna=skipna, n_threads=1)
+    mapper = lambda x: reduce_1d(reduce_func_name, x, skipna=skipna, n_threads=n_threads)
     if n_threads == 1:
         results = list(map(mapper, arr))
     else:
@@ -213,12 +211,12 @@ def reduce(
         return getattr(nanops, f"nan{reduce_func_name}")(**locals())
 
     if arr.ndim == 1:
-        return reduce_1d(reduce_func_name, arr, skipna=skipna)
+        return reduce_1d(reduce_func_name, arr, skipna=skipna, n_threads=n_threads)
     else:
         if axis is None:
             # warn
             axis = 0
-        return reduce_2d(reduce_func_name, arr, axis=axis)
+        return reduce_2d(reduce_func_name, arr, axis=axis, n_threads=n_threads)
 
 
 def nansum(
