@@ -1,0 +1,14 @@
+include README.md
+include LICENSE
+include CLAUDE.md
+include environment.yml
+include pyproject.toml
+recursive-include pandas_plus *.py
+recursive-include conda-recipe *
+recursive-include tests *.py
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude *.so
+global-exclude *.dylib
+global-exclude *.dll

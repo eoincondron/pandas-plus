@@ -1,0 +1,66 @@
+{% set name = "pandas-plus" %}
+{% set version = "0.1.0" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ../
+
+build:
+  noarch: python
+  number: 0
+  script: python -m pip install . -vv
+  entry_points:
+    - pandas-plus = pandas_plus:__main__
+
+requirements:
+  host:
+    - python >=3.6
+    - pip
+    - setuptools
+    - wheel
+  run:
+    - python >=3.6
+    - numpy >=1.19.0
+    - pandas >=1.3.0
+    - numba >=0.56.0
+    - polars >=0.15.0
+
+test:
+  imports:
+    - pandas_plus
+    - pandas_plus.groupby
+    - pandas_plus.groupby.core
+    - pandas_plus.groupby.numba
+    - pandas_plus.plotting
+    - pandas_plus.nanops
+    - pandas_plus.util
+  commands:
+    - python -c "import pandas_plus; print('pandas-plus imported successfully')"
+  requires:
+    - pytest >=6.0
+    - pytest-xdist
+  source_files:
+    - tests/
+  commands:
+    - python -m pytest tests/ -v --tb=short
+
+about:
+  home: https://github.com/your-username/pandas-plus
+  license: MIT
+  license_family: MIT
+  license_file: LICENSE
+  summary: High-performance extension package for pandas with fast groupby operations
+  description: |
+    pandas-plus enhances pandas' groupby functionality with optimized implementations 
+    that leverage NumPy arrays and Numba's just-in-time compilation for significant 
+    performance improvements. The package is designed to work seamlessly with pandas 
+    DataFrames and Series while providing additional flexibility for various array types.
+  doc_url: https://github.com/your-username/pandas-plus
+  dev_url: https://github.com/your-username/pandas-plus
+
+extra:
+  recipe-maintainers:
+    - your-username

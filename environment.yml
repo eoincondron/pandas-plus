@@ -1,0 +1,28 @@
+name: pandas-plus-env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.6
+  - numpy>=1.19.0
+  - pandas>=1.3.0
+  - numba>=0.56.0
+  - polars>=0.15.0
+  - pytest>=6.0
+  - pytest-xdist
+  - black
+  - flake8
+  - isort
+  - mypy
+  - bandit
+  - safety
+  - matplotlib>=3.0.0
+  - seaborn>=0.11.0
+  - conda-build
+  - anaconda-client
+  - pip
+  - setuptools
+  - wheel
+  - pip:
+    - build
+    - twine
