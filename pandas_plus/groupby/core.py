@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Union
 from inspect import signature
 import multiprocessing
 
@@ -64,43 +64,30 @@ def val_to_numpy(val: ArrayType1D):
         return np.asarray(val)
 
 
-def _get_indexes_from_values(values: ArrayCollection) -> List[pd.Index]:
+def _get_indexes_from_values(arr_list: List[ArrayType1D]) -> List[pd.Index]:
     """
     Extract pandas Index objects from the provided values.
 
     Parameters
     ----------
-    values : ArrayCollection
-        Collection of arrays or Series to extract indexes from
+    arr_list : 
+        List of arrays or Series to extract indexes from
 
     Returns
     -------
     List[pd.Index]
         List of pandas Index objects corresponding to each value in the collection
     """
-    if isinstance(values, (pd.Series, pd.DataFrame)):
-        out = [values.index]
-    elif isinstance(values, pl.Series):
-        out = []
-    elif isinstance(values, (list, tuple)):
-        out = [getattr(v, "index", None) for v in values]
-    elif isinstance(values, Mapping):
-        return _get_indexes_from_values(list(values.values()))
-    elif isinstance(values, np.ndarray):
-        out = []
-    else:
-        return []
-    return [index for index in out if index is not None]
+    return [arr.index for arr in arr_list if isinstance(arr, pd.Series)]
 
 
-def _validate_input_indexes(indexes: List[pd.Index]) -> Optional[pd.Index]:
+def _validate_input_lengths_and_indexes(arr_list: List[ArrayType1D]) -> Optional[pd.Index]:
     """
-    Validate that all provided pandas indexes are compatible.
+    Validate that all values have the same length abnd that any pandas indexes are compatible.
 
     Parameters
     ----------
-    indexes : list
-        List of pandas Index objects to validate
+    values : ArrayCollection
 
     Returns
     -------
@@ -112,24 +99,18 @@ def _validate_input_indexes(indexes: List[pd.Index]) -> Optional[pd.Index]:
     ValueError
         If indexes have different lengths or non-trivial indexes don't match
     """
-    lengths = set(map(len, indexes))
+    lengths = set(map(len, arr_list))
     if len(lengths) > 1:
         raise ValueError(f"found more than one unique length: {lengths}")
-    non_trivial = [
-        index
-        for index in indexes
-        if not (
-            isinstance(index, pd.RangeIndex) and index.start == 0 and index.step == 1
-        )
-    ]
-    if len(non_trivial) == 0:
-        return
+    indexes = _get_indexes_from_values(arr_list)
+    if len(indexes) == 0:
+        return None
 
-    for left, right in zip(non_trivial, non_trivial[1:]):
+    for left, right in zip(indexes, indexes[1:]):
         if not left.equals(right):
-            raise ValueError
+            raise ValueError("Found different indices in the array_inputs")
 
-    return non_trivial[0]
+    return indexes[0]
 
 
 def groupby_method(method):
@@ -202,6 +183,7 @@ class GroupBy:
             return
 
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
+        self._key_index = _validate_input_lengths_and_indexes(group_key_list)
 
         if len(group_key_list) == 1:
             self._group_ikey, self._result_index = factorize_1d(
@@ -271,6 +253,20 @@ class GroupBy:
         n_threads = max(n_threads, 1)
         return n_threads
 
+    def _preprocess_arguments(self, values: ArrayCollection, mask: Union[ArrayType1D, None]):
+        value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        to_check = value_list + [self.group_ikey]
+        if mask is not None:
+            to_check.append(mask)
+        common_index = _validate_input_lengths_and_indexes(to_check)
+        if self._key_index is not None and common_index is not None:
+            if not self._key_index.equals(common_index):
+                raise ValueError(
+                    "Pandas index of inputs does not match that of the group keys"
+                )
+
+        return value_names, value_list, common_index
+
     def _apply_gb_func(
         self,
         func_name: str,
@@ -300,7 +296,8 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Results of the groupby operation
         """
-        value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        value_names, value_list, common_index  = self._preprocess_arguments(values, mask)
+
         if len(set(value_names)) != len(value_names):
             raise ValueError(
                 "Values must have unique names. "
@@ -308,10 +305,6 @@ class GroupBy:
             )
 
         np_values = list(map(val_to_numpy, value_list))
-
-        indexes = _get_indexes_from_values(value_list)
-        common_index = _validate_input_indexes(indexes)
-
         func = getattr(numba_funcs, f"group_{func_name}")
 
         results = map(

@@ -214,6 +214,26 @@ class TestGroupBy:
         expected = values.groupby(key).sum().reindex(key.categories)
         pd.testing.assert_series_equal(result, expected)
 
+    @pytest.mark.parametrize("agg_func", ["sum", "median"])
+    @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
+    def test_length_mismatch_fail(self, agg_func, arg_name_to_be_wrong):
+        s = np.arange(10)
+        kwargs = dict(self=s % 2, values=s, mask=s < 8)
+        kwargs[arg_name_to_be_wrong] = kwargs[arg_name_to_be_wrong][:-1]
+        with pytest.raises(ValueError):
+            getattr(GroupBy, agg_func)(**kwargs)
+
+    @pytest.mark.parametrize("agg_func", ["sum", "median"])
+    @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
+    def test_index_mismatch_fail(self, agg_func, arg_name_to_be_wrong):
+        s = pd.Series(np.arange(10))
+        kwargs = dict(
+            self=s % 2, values=s, mask=s < 8
+        )
+        kwargs[arg_name_to_be_wrong].index += 1
+        with pytest.raises(ValueError):
+            getattr(GroupBy, agg_func)(**kwargs)
+
 
 @pytest.mark.parametrize("nlevels", [1, 2, 3])
 @pytest.mark.parametrize("aggfunc", ["sum", "min", "max"])
