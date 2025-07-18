@@ -539,9 +539,14 @@ class GroupBy:
         margins: bool = False,
     ) -> pd.Series | pd.DataFrame:
         # check for nullity
-        arr1, _ = convert_data_to_arr_list_and_keys(values1)
-        arr2, _ = convert_data_to_arr_list_and_keys(values2)
-        for left, right in zip(arr1, arr2):
+        value_list_1, _ = convert_data_to_arr_list_and_keys(values1)
+        value_list_2, _ = convert_data_to_arr_list_and_keys(values2)
+        if len(value_list_1) != len(value_list_2):
+            raise ValueError(
+                f"Number of columns in values1 and values2 must be equal. \n"
+                f"Found {len(value_list_1), len(value_list_2)}"
+            )
+        for left, right in zip(value_list_1, value_list_2):
             if (pd.isna(left) != pd.isna(right)).any():
                 raise ValueError(
                     "Values must have the same nullity as otherwise the ratio is undefined. "
