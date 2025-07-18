@@ -457,6 +457,50 @@ class GroupBy:
         )
 
     @groupby_method
+    def median(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        transform: bool = False,
+    ):
+        """Calculate the median of the provided values for each group.
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate the median for, can be a single array/Series or a collection of them.
+        mask : Optional[ArrayType1D], default None
+            Boolean mask to filter values before calculating the median.
+        transform : bool, default False
+            If True, return values with the same shape as input rather than one value per group.
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            The median of the values for each group.
+            If `transform` is True, returns a Series/DataFrame with the same shape as input.
+        """
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+
+        if mask is None:
+            mask = True
+        if self.has_null_keys:
+            mask = mask & (self.group_ikey >= 0)
+
+        if mask is True:
+            mask = slice(None)
+
+        tmp_df = pd.DataFrame(
+            {k: v[mask] for k, v in zip(value_names, value_list)}, copy=False
+        )
+        result = tmp_df.groupby(self.group_ikey[mask]).median()
+        if transform:
+            result = result.reindex(self.group_ikey, copy=False)
+        else:
+            result.index = self.result_index[result.index]
+            if len(value_list) == 1 and isinstance(values, ArrayType1D):
+                result = result.iloc[:, 0]
+        return result
+
+    @groupby_method
     def agg(
         self,
         values: ArrayCollection,
