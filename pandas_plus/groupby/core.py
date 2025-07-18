@@ -570,6 +570,35 @@ class GroupBy:
             **kwargs, mask=global_mask
         )
 
+    def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        common_index = _validate_input_lengths_and_indexes(value_list)
+        ilocs = numba_funcs.find_first_n(self.group_ikey, self.ngroups, n=n).flatten()
+        keep = ilocs > -1
+        ilocs = ilocs[keep]
+
+        if keep_input_index:
+            if common_index is None:
+                common_index = pd.RangeIndex(len(value_list[0]))
+            out_index = common_index[ilocs]
+        else:
+            new_codes = [np.repeat(c, n)[keep] for c in self.result_index.codes]
+            new_codes.append(np.tile(np.arange(n), self.ngroups)[keep])
+            new_levels = [*self.result_index.levels, np.arange(n)]
+            out_index = pd.MultiIndex(
+                codes=new_codes,
+                levels=new_levels,
+                names=[*self.result_index.names, None],
+            )[keep]
+
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        if return_1d:
+            return pd.Series(value_list[0][ilocs], out_index)
+        else:
+            return pd.DataFrame(
+                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index
+            )
+
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
         """
