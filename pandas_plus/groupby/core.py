@@ -575,6 +575,37 @@ class GroupBy:
             **kwargs, mask=global_mask
         )
 
+    @groupby_method
+    def density(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        margins: bool = False,
+    ):
+        totals = self.sum(values, mask, margins=True)
+        if self.result_index.nlevels == 1:
+            density = 100 * totals / totals.loc["All"]
+            if margins:
+                density.loc["All"] = totals.loc["All"]
+            else:
+                density = density.drop("All")
+
+        elif self.result_index.nlevels == 2:
+            density = (
+                100
+                * totals
+                / totals.index.get_level_values(0).map(totals.xs("All", 0, 1))
+            )
+            all_rows = totals.index.get_level_values(1) == "All"
+            if margins:
+                density.loc[all_rows] = totals[all_rows]
+            else:
+                density = density[~all_rows]
+        else:
+            raise ValueError()
+
+        return density
+
     def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         common_index = _validate_input_lengths_and_indexes(value_list)
