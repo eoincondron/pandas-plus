@@ -17,6 +17,7 @@ from ..util import (
     factorize_2d,
     convert_data_to_arr_list_and_keys,
     get_array_name,
+    _null_value_for_array_type,
 )
 
 ArrayCollection = (
@@ -70,7 +71,7 @@ def _get_indexes_from_values(arr_list: List[ArrayType1D]) -> List[pd.Index]:
 
     Parameters
     ----------
-    arr_list : 
+    arr_list :
         List of arrays or Series to extract indexes from
 
     Returns
@@ -81,7 +82,9 @@ def _get_indexes_from_values(arr_list: List[ArrayType1D]) -> List[pd.Index]:
     return [arr.index for arr in arr_list if isinstance(arr, pd.Series)]
 
 
-def _validate_input_lengths_and_indexes(arr_list: List[ArrayType1D]) -> Optional[pd.Index]:
+def _validate_input_lengths_and_indexes(
+    arr_list: List[ArrayType1D],
+) -> Optional[pd.Index]:
     """
     Validate that all values have the same length abnd that any pandas indexes are compatible.
 
@@ -253,7 +256,9 @@ class GroupBy:
         n_threads = max(n_threads, 1)
         return n_threads
 
-    def _preprocess_arguments(self, values: ArrayCollection, mask: Union[ArrayType1D, None]):
+    def _preprocess_arguments(
+        self, values: ArrayCollection, mask: Union[ArrayType1D, None]
+    ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         to_check = value_list + [self.group_ikey]
         if mask is not None:
@@ -296,7 +301,7 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Results of the groupby operation
         """
-        value_names, value_list, common_index  = self._preprocess_arguments(values, mask)
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
 
         if len(set(value_names)) != len(value_names):
             raise ValueError(
@@ -343,7 +348,7 @@ class GroupBy:
 
         if margins:
             out = add_row_margin(
-                out, agg_func="sum" if func in ("size", "count") else func_name
+                out, agg_func="sum" if func_name in ("size", "count") else func_name
             )
         return out
 
@@ -656,7 +661,7 @@ def pivot_table(
 
     grouper = GroupBy(index + columns)
     if agg_func == "size":
-        out = grouper.size(mask=mask)
+        out = grouper.size(mask=mask, margins=margins)
     else:
         out = grouper.agg(
             values=values,
@@ -718,7 +723,8 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
     new_levels = [lvl.tolist() + ["All"] for lvl in index.levels]
     new_codes = cartesian_product([np.arange(len(lvl)) for lvl in new_levels])
     new_index = pd.MultiIndex(codes=new_codes, levels=new_levels, names=index.names)
-    out = data.reindex(new_index)
+    null_value = _null_value_for_array_type(data)
+    out = data.reindex(new_index, fill_value=0)
     keep = pd.Series(False, index=out.index)
     keep.loc[data.index] = True
 

@@ -260,9 +260,10 @@ def test_add_row_margin(aggfunc, nlevels):
             assert np.isclose(with_margin.loc[tuple(ix)], summary.xs(key, 0, i).agg(aggfunc)).all()
 
 
+@pytest.mark.parametrize("aggfunc", ["mean", "count", "sum", "min", "max"])
 @pytest.mark.parametrize("margins", [False, True])
 @pytest.mark.parametrize("use_mask", [False, True])
-def test_pivot(margins, use_mask):
+def test_pivot_table(margins, use_mask, aggfunc):
     index = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
     columns = pd.Series(['A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'])
     values = pd.Series(np.random.rand(len(index)))
@@ -272,6 +273,6 @@ def test_pivot(margins, use_mask):
     else:
         mask = slice(None)
 
-    result = pivot_table(index, columns, values, margins=margins, mask=mask if use_mask else None)
-    expected = pd.crosstab(index[mask], columns[mask], values=values[mask], aggfunc='sum', margins=margins)
-    pd.testing.assert_frame_equal(result, expected, check_names=False)
+    result = pivot_table(index, columns, values, margins=margins, agg_func=aggfunc, mask=mask if use_mask else None)
+    expected = pd.crosstab(index[mask], columns[mask], values=values[mask], aggfunc=aggfunc, margins=margins)
+    pd.testing.assert_frame_equal(result, expected, check_dtype=False, check_names=False)
