@@ -40,7 +40,7 @@ def test_reduce_1d(series, op_name, with_nans, skipna, n_threads, integers):
 @parametrize("with_nans", [False, True])
 @parametrize("skipna", [True, False])
 @parametrize("n_threads", [1, 2])
-@parametrize("dtype", ['datetime64[ns]', 'timedelta64[ns]'])
+@parametrize("dtype", ["datetime64[ns]", "timedelta64[ns]"])
 def test_reduce_1d_timestamps(op_name, with_nans, skipna, n_threads, dtype):
     series = pd.Series(np.arange(100, 200), dtype=dtype)
     if with_nans:
@@ -72,7 +72,9 @@ def test_nanops_1d(series, op_name, with_nans, skipna, n_threads):
 @parametrize("op_name", ["min", "max", "sum", "mean", "std", "var"])
 @parametrize("n_threads", [1, 2])
 def test_nanops_multi_thread_nans(series, op_name, n_threads):
-    series = series.where(series.index == 0)  # only one non-null value to ensure one thread is all null
+    series = series.where(
+        series.index == 0
+    )  # only one non-null value to ensure one thread is all null
     func = getattr(nanops, f"nan{op_name}")
     result = func(series.values, skipna=True, n_threads=n_threads)
     expected = series.agg(op_name, skipna=True)
@@ -100,12 +102,7 @@ def test_reduce_2d(series, op_name, with_nans, skipna, n_threads, integers):
         series = series.where(series.index > 1)
 
     arr = series.values.reshape((len(series) // 2, 2))
-    result = nanops.reduce_2d(
-        op_name, arr, skipna=skipna, n_threads=n_threads
-    )
+    result = nanops.reduce_2d(op_name, arr, skipna=skipna, n_threads=n_threads)
     df = pd.DataFrame(arr)
-    expected = (
-        df.count() if op_name == "count" else df.agg(op_name, skipna=skipna)
-    )
+    expected = df.count() if op_name == "count" else df.agg(op_name, skipna=skipna)
     np.testing.assert_array_almost_equal(result, expected.values)
-

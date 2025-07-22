@@ -167,7 +167,9 @@ def reduce_2d(
     """
     if axis == 0:
         arr = arr.T
-    mapper = lambda x: reduce_1d(reduce_func_name, x, skipna=skipna, n_threads=n_threads)
+    mapper = lambda x: reduce_1d(
+        reduce_func_name, x, skipna=skipna, n_threads=n_threads
+    )
     if n_threads == 1:
         results = list(map(mapper, arr))
     else:

@@ -260,6 +260,7 @@ class GroupBy:
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
     ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
+
         to_check = value_list + [self.group_ikey]
         if mask is not None:
             to_check.append(mask)

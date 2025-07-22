@@ -24,8 +24,12 @@ class TestGroupBy:
         self, method, key_dtype, key_type, value_dtype, value_type, use_mask
     ):
         index = pd.RangeIndex(2, 11)
-        key = key_type(pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6], index=index, dtype=key_dtype))
-        values = value_type(pd.Series([-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index)).astype(value_dtype)
+        key = key_type(
+            pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6], index=index, dtype=key_dtype)
+        )
+        values = value_type(
+            pd.Series([-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index)
+        ).astype(value_dtype)
 
         if use_mask:
             mask = pd_mask = key.astype(int) != 1
@@ -35,7 +39,9 @@ class TestGroupBy:
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
 
-        expected = getattr(pd.Series(values, index=index)[pd_mask].groupby(key[pd_mask]), method)()
+        expected = getattr(
+            pd.Series(values, index=index)[pd_mask].groupby(key[pd_mask]), method
+        )()
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
@@ -48,7 +54,9 @@ class TestGroupBy:
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     def test_floats_with_nulls(self, method, use_mask):
         key = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
-        series = pd.Series([.1, 0, 3.5, 3, 8, 6, 7, 1, 1.2],)
+        series = pd.Series(
+            [0.1, 0, 3.5, 3, 8, 6, 7, 1, 1.2],
+        )
         null_mask = key.isin([2, 6])
         series = series.where(~null_mask)
         if use_mask:
@@ -58,7 +66,9 @@ class TestGroupBy:
             mask = None
             pd_mask = slice(None)
         result = getattr(GroupBy, method)(key, series, mask=mask)
-        expected = series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
+        expected = (
+            series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
+        )
         pd.testing.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize("use_mask", [True, False])
@@ -76,19 +86,19 @@ class TestGroupBy:
             mask = None
             pd_mask = slice(None)
         result = getattr(GroupBy, method)(key, series, mask=mask)
-        expected = series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
+        expected = (
+            series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
+        )
         pd.testing.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     @pytest.mark.parametrize("value_type", [np.array, list])
     @pytest.mark.parametrize("use_mask", [False, True])
-    def test_2d_variants(
-            self, method, value_type, use_mask
-    ):
+    def test_2d_variants(self, method, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
-        values = value_type([
-            np.random.rand(len(key)), np.random.randint(0, 9, len(key))
-        ])
+        values = value_type(
+            [np.random.rand(len(key)), np.random.randint(0, 9, len(key))]
+        )
 
         if use_mask:
             mask = pd_mask = key != 1
@@ -96,23 +106,25 @@ class TestGroupBy:
             mask = None
             pd_mask = slice(None)
 
-        result = getattr(GroupBy, method)(key, values.T if value_type is np.array else values, mask=mask)
+        result = getattr(GroupBy, method)(
+            key, values.T if value_type is np.array else values, mask=mask
+        )
 
-        compare_df = pd.DataFrame(dict(zip(['_arr_0', '_arr_1'], values)))
+        compare_df = pd.DataFrame(dict(zip(["_arr_0", "_arr_1"], values)))
         expected = getattr(compare_df[pd_mask].groupby(key[pd_mask]), method)()
         pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     @pytest.mark.parametrize("value_type", [pd.DataFrame, dict])
     @pytest.mark.parametrize("use_mask", [False, True])
-    def test_mapping_variants(
-            self, method, value_type, use_mask
-    ):
+    def test_mapping_variants(self, method, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
-        values = value_type(dict(
-            a=np.random.rand(len(key)),
-            b=np.random.randint(0, 9, len(key)),
-        ))
+        values = value_type(
+            dict(
+                a=np.random.rand(len(key)),
+                b=np.random.randint(0, 9, len(key)),
+            )
+        )
         if use_mask:
             mask = pd_mask = key != 1
         else:
@@ -121,15 +133,15 @@ class TestGroupBy:
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
 
-        expected = getattr(pd.DataFrame(values)[pd_mask].groupby(key[pd_mask]), method)()
+        expected = getattr(
+            pd.DataFrame(values)[pd_mask].groupby(key[pd_mask]), method
+        )()
         pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
 
     @pytest.mark.parametrize("agg_func", ["sum", "mean", "min", "max"])
-    @pytest.mark.parametrize("value_type",[pd.Series, pd.DataFrame])
+    @pytest.mark.parametrize("value_type", [pd.Series, pd.DataFrame])
     @pytest.mark.parametrize("use_mask", [False, True])
-    def test_agg_single_func_mode(
-            self, agg_func, value_type, use_mask
-    ):
+    def test_agg_single_func_mode(self, agg_func, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
         values = pd.Series(np.random.rand(len(key)))
         if value_type is pd.DataFrame:
@@ -148,22 +160,26 @@ class TestGroupBy:
 
     @pytest.mark.parametrize("value_type", [pd.DataFrame, dict])
     @pytest.mark.parametrize("use_mask", [False, True])
-    def test_agg_multi_func_mode(
-            self, value_type, use_mask
-    ):
+    def test_agg_multi_func_mode(self, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
-        values = value_type(dict(
-            b=np.random.rand(len(key)),
-            a=np.random.randint(0, 9, len(key)),
-        ))
+        values = value_type(
+            dict(
+                b=np.random.rand(len(key)),
+                a=np.random.randint(0, 9, len(key)),
+            )
+        )
         if use_mask:
             mask = pd_mask = key != 1
         else:
             mask = None
             pd_mask = slice(None)
 
-        result = GroupBy.agg(key, values, agg_func=['mean', 'sum'], mask=mask)
-        expected = pd.DataFrame(values)[pd_mask].groupby(key[pd_mask]).agg({'b': 'mean', 'a': 'sum'})
+        result = GroupBy.agg(key, values, agg_func=["mean", "sum"], mask=mask)
+        expected = (
+            pd.DataFrame(values)[pd_mask]
+            .groupby(key[pd_mask])
+            .agg({"b": "mean", "a": "sum"})
+        )
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("categorical", [False, True])
@@ -197,7 +213,7 @@ class TestGroupBy:
             mask = key != 1
             pd_mask = mask
         else:
-            mask = None     
+            mask = None
             pd_mask = slice(None)
         # Test with sum
         result_sum = gb.sum(values, mask=mask)
@@ -205,7 +221,9 @@ class TestGroupBy:
         pd.testing.assert_series_equal(result_sum, expected_sum)
 
     def test_categorical_order_preserved(self):
-        key = pd.Categorical.from_codes([0, 1, 2, 3, 1, 2, 3], categories=['first', 'second', 'third', 'fourth'])
+        key = pd.Categorical.from_codes(
+            [0, 1, 2, 3, 1, 2, 3], categories=["first", "second", "third", "fourth"]
+        )
         values = pd.Series(np.random.rand(len(key)))
 
         gb = GroupBy(key)
@@ -227,9 +245,7 @@ class TestGroupBy:
     @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
     def test_index_mismatch_fail(self, agg_func, arg_name_to_be_wrong):
         s = pd.Series(np.arange(10))
-        kwargs = dict(
-            self=s % 2, values=s, mask=s < 8
-        )
+        kwargs = dict(self=s % 2, values=s, mask=s < 8)
         kwargs[arg_name_to_be_wrong].index += 1
         with pytest.raises(ValueError):
             getattr(GroupBy, agg_func)(**kwargs)
@@ -238,26 +254,30 @@ class TestGroupBy:
 @pytest.mark.parametrize("nlevels", [1, 2, 3])
 @pytest.mark.parametrize("aggfunc", ["sum", "min", "max"])
 def test_add_row_margin(aggfunc, nlevels):
-    df = pd.DataFrame({
-        'Bools': [True, False] * 15,
-        'Strings': ['A', 'B', 'C'] * 10,
-        'Ints': np.repeat(np.arange(10), 3),
-        'X': np.random.rand(30),
-    })        
-    summary = df.groupby(['Bools', 'Strings', 'Ints'][:nlevels]).X.agg(aggfunc)
+    df = pd.DataFrame(
+        {
+            "Bools": [True, False] * 15,
+            "Strings": ["A", "B", "C"] * 10,
+            "Ints": np.repeat(np.arange(10), 3),
+            "X": np.random.rand(30),
+        }
+    )
+    summary = df.groupby(["Bools", "Strings", "Ints"][:nlevels]).X.agg(aggfunc)
     with_margin = add_row_margin(summary, agg_func=aggfunc)
     assert (with_margin.reindex(summary.index) == summary).all().all()
 
     if nlevels == 1:
-        assert with_margin.loc['All'] == summary.agg(aggfunc)
+        assert with_margin.loc["All"] == summary.agg(aggfunc)
     else:
-        total_key = ['All'] * nlevels
+        total_key = ["All"] * nlevels
         assert np.isclose(with_margin.loc[tuple(total_key)], summary.agg(aggfunc)).all()
         for i, level in enumerate(summary.index.levels):
             key = level[0]
             ix = total_key.copy()
             ix[i] = key
-            assert np.isclose(with_margin.loc[tuple(ix)], summary.xs(key, 0, i).agg(aggfunc)).all()
+            assert np.isclose(
+                with_margin.loc[tuple(ix)], summary.xs(key, 0, i).agg(aggfunc)
+            ).all()
 
 
 @pytest.mark.parametrize("aggfunc", ["mean", "count", "sum", "min", "max"])
@@ -265,7 +285,7 @@ def test_add_row_margin(aggfunc, nlevels):
 @pytest.mark.parametrize("use_mask", [False, True])
 def test_pivot_table(margins, use_mask, aggfunc):
     index = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
-    columns = pd.Series(['A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'])
+    columns = pd.Series(["A", "B", "C", "A", "B", "C", "A", "B", "C"])
     values = pd.Series(np.random.rand(len(index)))
 
     if use_mask:
@@ -273,6 +293,21 @@ def test_pivot_table(margins, use_mask, aggfunc):
     else:
         mask = slice(None)
 
-    result = pivot_table(index, columns, values, margins=margins, agg_func=aggfunc, mask=mask if use_mask else None)
-    expected = pd.crosstab(index[mask], columns[mask], values=values[mask], aggfunc=aggfunc, margins=margins)
-    pd.testing.assert_frame_equal(result, expected, check_dtype=False, check_names=False)
+    result = pivot_table(
+        index,
+        columns,
+        values,
+        margins=margins,
+        agg_func=aggfunc,
+        mask=mask if use_mask else None,
+    )
+    expected = pd.crosstab(
+        index[mask],
+        columns[mask],
+        values=values[mask],
+        aggfunc=aggfunc,
+        margins=margins,
+    )
+    pd.testing.assert_frame_equal(
+        result, expected, check_dtype=False, check_names=False
+    )
