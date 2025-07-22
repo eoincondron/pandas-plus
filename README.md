@@ -237,7 +237,7 @@ pandas-plus provides significant performance improvements for large datasets:
 
 ## Dependencies
 
-- Python 3.6+
+- Python 3.10+
 - NumPy
 - pandas
 - numba

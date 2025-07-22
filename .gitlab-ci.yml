@@ -18,41 +18,11 @@ variables:
     - conda config --set always_yes yes --set changeps1 no
     - conda update -q conda
     - conda info -a
-    - conda create -q -n $CONDA_ENV python=3.9
+    - conda create -q -n $CONDA_ENV python=3.12
     - source activate $CONDA_ENV
     - conda install -c conda-forge numpy pandas numba polars pytest pytest-xdist conda-build anaconda-client
 
 # Test stage - run tests on multiple Python versions
-test:python3.8:
-  stage: test
-  image: continuumio/miniconda3:latest
-  <<: *conda_setup
-  script:
-    - conda create -q -n test-env python=3.8
-    - source activate test-env
-    - conda install -c conda-forge numpy pandas numba polars pytest pytest-xdist
-    - pip install -e .
-    - python -m pytest tests/ -v --tb=short
-  only:
-    - merge_requests
-    - main
-    - develop
-
-test:python3.9:
-  stage: test
-  image: continuumio/miniconda3:latest
-  <<: *conda_setup
-  script:
-    - conda create -q -n test-env python=3.9
-    - source activate test-env
-    - conda install -c conda-forge numpy pandas numba polars pytest pytest-xdist
-    - pip install -e .
-    - python -m pytest tests/ -v --tb=short
-  only:
-    - merge_requests
-    - main
-    - develop
-
 test:python3.10:
   stage: test
   image: continuumio/miniconda3:latest
@@ -67,6 +37,37 @@ test:python3.10:
     - merge_requests
     - main
     - develop
+
+test:python3.12:
+  stage: test
+  image: continuumio/miniconda3:latest
+  <<: *conda_setup
+  script:
+    - conda create -q -n test-env python=3.12
+    - source activate test-env
+    - conda install -c conda-forge numpy pandas numba polars pytest pytest-xdist
+    - pip install -e .
+    - python -m pytest tests/ -v --tb=short
+  only:
+    - merge_requests
+    - main
+    - develop
+
+test:python3.13:
+  stage: test
+  image: continuumio/miniconda3:latest
+  <<: *conda_setup
+  script:
+    - conda create -q -n test-env python=3.13
+    - source activate test-env
+    - conda install -c conda-forge numpy pandas numba polars pytest pytest-xdist
+    - pip install -e .
+    - python -m pytest tests/ -v --tb=short
+  only:
+    - merge_requests
+    - main
+    - develop
+
 
 # Build conda package
 build:conda:
@@ -126,7 +127,7 @@ deploy:conda:
 # Deploy to PyPI (requires PYPI_TOKEN variable)
 deploy:pypi:
   stage: deploy
-  image: python:3.9
+  image: python:3.12
   before_script:
     - pip install build twine
   script:
@@ -150,7 +151,7 @@ deploy:pypi:
 # Linting and code quality checks
 lint:
   stage: test
-  image: python:3.9
+  image: python:3.12
   before_script:
     - pip install black flake8 isort mypy
   script:
@@ -167,7 +168,7 @@ lint:
 # Security scanning
 security:
   stage: test
-  image: python:3.9
+  image: python:3.12
   before_script:
     - pip install bandit safety
   script:

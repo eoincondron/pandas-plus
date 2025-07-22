@@ -7,7 +7,7 @@ name = "pandas-plus"
 version = "0.1.0"
 description = "High-performance extension package for pandas with fast groupby operations"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Your Name", email = "your.email@example.com"},
@@ -19,13 +19,10 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -57,10 +54,10 @@ test = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-username/pandas-plus"
-"Bug Reports" = "https://github.com/your-username/pandas-plus/issues"
-Source = "https://github.com/your-username/pandas-plus"
-Documentation = "https://github.com/your-username/pandas-plus/blob/main/README.md"
+Homepage = "https://github.com/eoincondron/pandas-plus"
+"Bug Reports" = "https://github.com/eoincondron/pandas-plus/issues"
+Source = "https://github.com/eoincondron/pandas-plus"
+Documentation = "https://github.com/eoincondron/pandas-plus/blob/main/README.md"
 
 [project.scripts]
 pandas-plus = "pandas_plus.__main__:main"
@@ -74,7 +71,7 @@ include = ["pandas_plus*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py36', 'py37', 'py38', 'py39', 'py310', 'py311']
+target-version = ['py310', 'py311', 'py312', 'py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -102,7 +99,7 @@ extend-ignore = ["E203", "W503"]
 exclude = [".git", "__pycache__", "build", "dist"]
 
 [tool.mypy]
-python_version = "3.6"
+python_version = "3.12"
 ignore_missing_imports = true
 warn_return_any = true
 warn_unused_configs = true
