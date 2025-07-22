@@ -397,15 +397,25 @@ def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
 class TempName(str): ...
 
 
+def series_is_numeric(series: pl.Series | pd.Series):
+    if isinstance(series, pl.Series):
+        return series.dtype.is_numeric() or series.dtype.is_temporal()
+    else:
+        return not (
+            pd.api.types.is_object_dtype(series)
+            or isinstance(series.dtype, pd.CategoricalDtype)
+        )
+
+
 def convert_data_to_arr_list_and_keys(
-    arrays, temp_name_root: str = "_arr_"
-) -> Tuple[List[np.ndarray], List[str]]:
+    data, temp_name_root: str = "_arr_"
+) -> Tuple[List[ArrayType1D], List[str]]:
     """
     Convert various array-like inputs to a dictionary of named arrays.
 
     Parameters
     ----------
-    arrays : Various types
+    data : Various types
         Input arrays in various formats (Mapping, list/tuple of arrays, 2D array,
         pandas/polars Series or DataFrame)
     temp_name_root : str, default "_arr_"
@@ -421,28 +431,27 @@ def convert_data_to_arr_list_and_keys(
     TypeError
         If the input type is not supported
     """
-    if isinstance(arrays, Mapping):
-        array = dict(arrays)
+    if isinstance(data, Mapping):
+        array = dict(data)
         return list(array.values()), list(array.keys())
-    elif isinstance(arrays, (tuple, list)):
-        names = map(get_array_name, arrays)
-        keys = [
+    elif isinstance(data, (tuple, list)):
+        names = map(get_array_name, data)
+        names = [
             name or TempName(f"{temp_name_root}{i}") for i, name in enumerate(names)
         ]
-        return list(arrays), keys
-    elif isinstance(arrays, np.ndarray) and arrays.ndim == 2:
-        return convert_data_to_arr_list_and_keys(list(arrays.T))
-    elif isinstance(
-        arrays, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)
-    ):
-        name = get_array_name(arrays)
+        return list(data), names
+    elif isinstance(data, np.ndarray) and data.ndim == 2:
+        return convert_data_to_arr_list_and_keys(list(data.T))
+    elif isinstance(data, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)):
+        name = get_array_name(data)
         if name is None:
             name = TempName(f"{temp_name_root}0")
-        return [arrays], [name]
-    elif isinstance(arrays, (pl.DataFrame, pd.DataFrame)):
-        return [arrays[key] for key in arrays.columns], list(arrays.columns)
+        return [data], [name]
+    elif isinstance(data, (pl.DataFrame, pd.DataFrame)):
+        names = list(data.columns)
+        return [data[key] for key in names], names
     else:
-        raise TypeError(f"Input type {type(arrays)} not supported")
+        raise TypeError(f"Input type {type(data)} not supported")
 
 
 def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
