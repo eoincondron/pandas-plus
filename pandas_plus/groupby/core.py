@@ -285,6 +285,22 @@ class GroupBy:
 
         return value_names, value_list, common_index
 
+    def _add_margins(
+        self,
+        result: Union[pd.DataFrame, pd.Series],
+        margins: Union[bool, List[int]],
+        func_name: str,
+    ):
+        if np.ndim(margins) == 1:
+            levels = list(margins)
+        else:
+            levels = None
+        return add_row_margin(
+            result,
+            agg_func="sum" if func_name in ("size", "count") else func_name,
+            levels=levels,
+        )
+
     def _apply_gb_func(
         self,
         func_name: str,
@@ -360,9 +376,8 @@ class GroupBy:
             out = out.loc[observed]
 
         if margins:
-            out = add_row_margin(
-                out, agg_func="sum" if func_name in ("size", "count") else func_name
-            )
+            out = self._add_margins(out, margins=margins, func_name=func_name)
+
         return out
 
     @groupby_method
@@ -388,7 +403,7 @@ class GroupBy:
             out = out.loc[out > 0]
 
         if margins:
-            out = add_row_margin(out, agg_func="sum")
+            out = self._add_margins(out, margins=margins, func_name="size")
 
         return out
 
@@ -679,7 +694,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: bool = False,
+    margins: Union[str, bool] = False,
 ):
     """
     Perform a cross-tabulation of the group keys and values.
