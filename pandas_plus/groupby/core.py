@@ -18,6 +18,7 @@ from ..util import (
     convert_data_to_arr_list_and_keys,
     get_array_name,
     _null_value_for_array_type,
+    series_is_numeric,
 )
 
 ArrayCollection = (
@@ -260,6 +261,17 @@ class GroupBy:
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
     ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        if isinstance(values, (pd.DataFrame)):
+            value_list, value_names = map(
+                list,
+                zip(
+                    *[
+                        (val, name)
+                        for val, name in zip(value_list, value_names)
+                        if series_is_numeric(val)
+                    ]
+                ),
+            )
 
         to_check = value_list + [self.group_ikey]
         if mask is not None:
