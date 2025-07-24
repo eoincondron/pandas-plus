@@ -9,6 +9,7 @@ import numba as nb
 import numpy as np
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 from numba.core.extending import overload
 from pandas.core.sorting import get_group_index
 
@@ -651,6 +652,23 @@ def bools_to_categorical(
     return out
 
 
+def factorize_arrow_arr(arr: Union[pa.Array, pl.Series, pd.Series]) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
+    """
+    Method for factorizing the arrow arrays, including polars Series and Pandas Series backed by pyarrow
+    """
+    if isinstance(arr, pl.Series):
+        arr = arr.to_arrow()
+    elif isinstance(arr, pd.Series):
+        arr = pa.Array.from_pandas(arr)
+
+    arr = arr.dictionary_encode()
+    if isinstance(arr, pa.ChunkedArray):
+        arr = arr.combine_chunks()
+    return arr.indices.to_numpy(zero_copy_only=False), pd.Index(arr.dictionary.to_numpy(
+        zero_copy_only=False
+    ))
+
+
 def factorize_1d(
     values,
     sort: "bool" = False,
@@ -752,6 +770,8 @@ def factorize_1d(
     >>> uniques
     Index(['a', 'b', 'c'], dtype='object')
     """
+    if isinstance(values, (pl.Series, pa.Array)) or (hasattr(values, 'dtype') and isinstance(values.dtype, pd.ArrowDtype)):
+        return factorize_arrow_arr(values)
     values = pd.Series(values)
     try:
         return np.asarray(values.cat.codes), values.cat.categories

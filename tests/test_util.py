@@ -4,6 +4,7 @@ import pandas as pd
 import polars as pl
 import polars.testing
 import pytest
+import pyarrow as pa
 
 from pandas_plus.util import (
     MAX_INT,
@@ -1339,3 +1340,242 @@ class TestFactorize2D:
         assert codes[0] == codes[3]  # (3, 'z')
         assert codes[1] == codes[4]  # (1, 'x')
         assert codes[2] == codes[5]  # (2, 'y')
+
+
+class TestFactorize1DComprehensive:
+    """Comprehensive test suite for factorize_1d function using parametrized tests."""
+
+    @pytest.mark.parametrize(
+        "values,expected_codes,expected_uniques",
+        [
+            ([1, 2, 3, 1, 2, 3], [0, 1, 2, 0, 1, 2], [1, 2, 3]),
+            (["a", "b", "c", "a", "b"], [0, 1, 2, 0, 1], ["a", "b", "c"]),
+            ([True, False, True, True, False], [0, 1, 0, 0, 1], [True, False]),
+            ([42], [0], [42]),
+            ([42, 42, 42, 42], [0, 0, 0, 0], [42]),
+            (
+                [1 + 2j, 3 + 4j, 1 + 2j, 3 + 4j, 5 + 6j],
+                [0, 1, 0, 1, 2],
+                [1 + 2j, 3 + 4j, 5 + 6j],
+            ),
+            (["α", "β", "γ", "α", "β"], [0, 1, 2, 0, 1], ["α", "β", "γ"]),
+        ],
+        ids=[
+            "integer_list",
+            "string_values",
+            "boolean_values",
+            "single_value",
+            "single_unique_repeated",
+            "complex_numbers",
+            "unicode_strings",
+        ],
+    )
+    def test_basic_factorization(self, values, expected_codes, expected_uniques):
+        """Test basic factorization with various input types."""
+        codes, uniques = factorize_1d(values)
+
+        np.testing.assert_array_equal(codes, np.array(expected_codes))
+        np.testing.assert_array_equal(uniques, np.array(expected_uniques))
+
+    @pytest.mark.parametrize(
+        "values,expected_codes",
+        [
+            ([1.0, 2.0, np.nan, 1.0, np.nan], [0, 1, -1, 0, -1]),
+            ([1, 2, None, 1, None], [0, 1, -1, 0, -1]),
+            ([np.nan, np.nan, np.nan], [-1, -1, -1]),
+            ([1, np.nan, 2, None, 1, np.nan, None], [0, -1, 1, -1, 0, -1, -1]),
+        ],
+        ids=["float_nan", "none_values", "all_nan", "mixed_nan_none"],
+    )
+    def test_null_value_handling(self, values, expected_codes):
+        """Test handling of null values (NaN, None)."""
+        codes, uniques = factorize_1d(values)
+
+        np.testing.assert_array_equal(codes, np.array(expected_codes))
+        # Check that NaN/None are not in uniques
+        assert all(pd.notna(uniques))
+
+    @pytest.mark.parametrize(
+        "array_constructor",
+        [
+            lambda x: x,
+            np.array,
+            pd.Series,
+        ],
+        ids=["plain_list", "numpy_array", "pandas_series"],
+    )
+    def test_different_input_types(self, array_constructor):
+        """Test factorize_1d with different array-like input types."""
+        values = array_constructor([1, 2, 3, 1, 2])
+        codes, uniques = factorize_1d(values)
+
+        expected_codes = np.array([0, 1, 2, 0, 1])
+        expected_uniques = np.array([1, 2, 3])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        np.testing.assert_array_equal(uniques, expected_uniques)
+
+    @pytest.mark.parametrize(
+        "sort_val,expected_uniques,expected_codes",
+        [
+            (False, ["c", "a", "y", "b"], [0, 1, 2, 3, 0, 1]),
+            (True, ["a", "b", "c", "y"], [2, 0, 3, 1, 2, 0]),
+        ],
+        ids=["unsorted_first_appearance", "sorted_alphabetical"],
+    )
+    def test_sort_parameter(self, sort_val, expected_uniques, expected_codes):
+        """Test sort parameter behavior."""
+        values = ["c", "a", "y", "b", "c", "a"]
+        codes, uniques = factorize_1d(values, sort=sort_val)
+
+        np.testing.assert_array_equal(codes, np.array(expected_codes))
+        np.testing.assert_array_equal(uniques, np.array(expected_uniques))
+
+        # Verify reconstruction works
+        reconstructed = uniques[codes]
+        np.testing.assert_array_equal(reconstructed, values)
+
+    def test_pandas_categorical_input(self):
+        """Test factorize_1d with pandas Categorical input."""
+        cat = pd.Categorical(["a", "b", "c", "a", "b"])
+        codes, uniques = factorize_1d(cat)
+
+        expected_codes = np.array([0, 1, 2, 0, 1])
+        expected_uniques = pd.Index(["a", "b", "c"], dtype="object")
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        pd.testing.assert_index_equal(uniques, expected_uniques)
+
+    def test_pandas_categorical_with_unused_categories(self):
+        """Test factorize_1d with pandas Categorical having unused categories."""
+        cat = pd.Categorical(["a", "b", "a"], categories=["a", "b", "c", "d"])
+        codes, uniques = factorize_1d(cat)
+
+        expected_codes = np.array([0, 1, 0])
+        expected_uniques = pd.Index(["a", "b", "c", "d"], dtype="object")
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        pd.testing.assert_index_equal(uniques, expected_uniques)
+
+    def test_ordered_categorical(self):
+        """Test factorize_1d preserves category order for ordered categoricals."""
+        cat = pd.Categorical(
+            ["medium", "low", "high", "medium"],
+            categories=["low", "medium", "high"],
+            ordered=True,
+        )
+        codes, uniques = factorize_1d(cat)
+
+        expected_codes = np.array([1, 0, 2, 1])
+        expected_uniques = pd.Index(["low", "medium", "high"], dtype="object")
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        pd.testing.assert_index_equal(uniques, expected_uniques)
+
+    @pytest.mark.skipif(not hasattr(pa, "array"), reason="PyArrow not available")
+    def test_pyarrow_array_input(self):
+        """Test factorize_1d with PyArrow Array input."""
+        values = pa.array([1, 2, 3, 1, 2])
+        codes, uniques = factorize_1d(values)
+
+        expected_codes = np.array([0, 1, 2, 0, 1])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert isinstance(uniques, pd.Index)
+        assert len(uniques) == 3
+
+    @pytest.mark.skipif(not hasattr(pl, "Series"), reason="Polars not available")
+    def test_polars_series_input(self):
+        """Test factorize_1d with Polars Series input."""
+        values = pl.Series([1, 2, 3, 1, 2])
+        codes, uniques = factorize_1d(values)
+
+        expected_codes = np.array([0, 1, 2, 0, 1])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert isinstance(uniques, pd.Index)
+        assert len(uniques) == 3
+
+    def test_pandas_series_with_arrow_dtype(self):
+        """Test factorize_1d with pandas Series backed by PyArrow."""
+        try:
+            values = pd.Series([1, 2, 3, 1, 2], dtype="int64[pyarrow]")
+            codes, uniques = factorize_1d(values)
+
+            expected_codes = np.array([0, 1, 2, 0, 1])
+
+            np.testing.assert_array_equal(codes, expected_codes)
+            assert isinstance(uniques, pd.Index)
+            assert len(uniques) == 3
+        except ImportError:
+            pytest.skip("PyArrow backend not available for pandas")
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            [],
+            np.array([]),
+            pd.Series([]),
+        ],
+        ids=["empty_list", "empty_numpy", "empty_pandas"],
+    )
+    def test_empty_input(self, values):
+        """Test factorize_1d with empty input."""
+        codes, uniques = factorize_1d(values)
+
+        assert len(codes) == 0
+        assert len(uniques) == 0
+        assert codes.dtype == np.int64
+
+    def test_size_hint_parameter(self):
+        """Test factorize_1d with size_hint parameter."""
+        values = [1, 2, 3, 1, 2]
+        codes, uniques = factorize_1d(values, size_hint=10)
+
+        expected_codes = np.array([0, 1, 2, 0, 1])
+        expected_uniques = np.array([1, 2, 3])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        np.testing.assert_array_equal(uniques, expected_uniques)
+
+    def test_return_types(self):
+        """Test that factorize_1d returns correct types."""
+        values = [1, 2, 3]
+        codes, uniques = factorize_1d(values)
+
+        assert isinstance(codes, np.ndarray)
+        assert codes.dtype == np.int64
+        assert isinstance(uniques, (np.ndarray, pd.Index))
+
+    def test_datetime_values(self):
+        """Test factorize_1d with datetime values."""
+        dates = pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-01"])
+        codes, uniques = factorize_1d(dates)
+
+        expected_codes = np.array([0, 1, 0])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        assert len(uniques) == 2
+
+    def test_large_input_array(self):
+        """Test factorize_1d with a larger input array."""
+        np.random.seed(42)
+        n = 10000
+        values = np.random.choice(["A", "B", "C", "D"], size=n)
+        codes, uniques = factorize_1d(values)
+
+        assert len(codes) == n
+        assert codes.dtype == np.int64
+        assert len(uniques) <= 4
+        assert all(code >= -1 and code < 4 for code in codes)
+
+    def test_integer_overflow_edge_case(self):
+        """Test factorize_1d with very large integers."""
+        large_ints = [2**62, 2**63 - 1, 2**62, 2**63 - 1]
+        codes, uniques = factorize_1d(large_ints)
+
+        expected_codes = np.array([0, 1, 0, 1])
+        expected_uniques = np.array([2**62, 2**63 - 1])
+
+        np.testing.assert_array_equal(codes, expected_codes)
+        np.testing.assert_array_equal(uniques, expected_uniques)
