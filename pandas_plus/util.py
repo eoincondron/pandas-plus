@@ -454,7 +454,7 @@ def convert_data_to_arr_list_and_keys(
         raise TypeError(f"Input type {type(data)} not supported")
 
 
-def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
+def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int):
     """
     Create a categorical with pretty labels by cutting data into bins.
 
@@ -502,7 +502,11 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List):
 
     labels = [f" <= {bins[0]}"]
     for left, right in zip(bins, bins[1:]):
-        left = left + is_integer
+        if is_integer:
+            left = str(left + is_integer)
+            right = str(right)
+        else:
+            left, right = (f"{x:.{precision}f}" for x in [left, right])
         if left == right:
             labels.append(str(left))
         else:
