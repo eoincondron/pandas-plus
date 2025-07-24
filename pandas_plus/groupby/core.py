@@ -758,7 +758,9 @@ def crosstab(
     )
 
 
-def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
+def add_row_margin(
+    data: pd.Series | pd.DataFrame, agg_func="sum", levels: Optional[List[int]] = None
+):
     """
     Add a total rows to a DataFrame with multi-level index.
     If the DataFrame has a single level index, it adds a 'All' row with the aggregated values.
@@ -782,18 +784,21 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
         data.loc["All"] = data.agg(agg_func)
         return data
 
-    new_levels = [lvl.tolist() + ["All"] for lvl in index.levels]
+    all_levels = list(range(data.index.nlevels))
+    if levels is None:
+        levels = all_levels
+
+    new_levels = [index.levels[lvl].tolist() + ["All"] for lvl in all_levels]
     new_codes = cartesian_product([np.arange(len(lvl)) for lvl in new_levels])
     new_index = pd.MultiIndex(codes=new_codes, levels=new_levels, names=index.names)
-    null_value = _null_value_for_array_type(data)
     out = data.reindex(new_index, fill_value=0)
     keep = pd.Series(False, index=out.index)
     keep.loc[data.index] = True
 
     summaries = []
-    levels = list(range(data.index.nlevels))
+
     for level in levels:
-        other_levels = [lvl for lvl in levels if lvl != level]
+        other_levels = [lvl for lvl in all_levels if lvl != level]
         summary = data.groupby(level=other_levels, observed=True).agg(agg_func)
         summary = add_row_margin(summary, agg_func)
         summary = pd.concat(
@@ -806,6 +811,9 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
     for summary in summaries:
         out.loc[summary.index] = summary
         keep.loc[summary.index] = True
+
+    for lvl in set(all_levels) - set(levels):
+        out.drop('All', level=lvl, inplace=True)
 
     return out[keep]
 
