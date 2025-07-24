@@ -281,7 +281,7 @@ def test_add_row_margin(aggfunc, nlevels):
 
 
 @pytest.mark.parametrize("aggfunc", ["mean", "count", "sum", "min", "max"])
-@pytest.mark.parametrize("margins", [False, True])
+@pytest.mark.parametrize("margins", [False, True, "row", "column"])
 @pytest.mark.parametrize("use_mask", [False, True])
 def test_pivot_table(margins, use_mask, aggfunc):
     index = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
@@ -306,8 +306,12 @@ def test_pivot_table(margins, use_mask, aggfunc):
         columns[mask],
         values=values[mask],
         aggfunc=aggfunc,
-        margins=margins,
+        margins=bool(margins),
     )
+    if margins == "row":
+        del expected['All']
+    elif margins == "column":
+        expected = expected.drop("All")
     pd.testing.assert_frame_equal(
         result, expected, check_dtype=False, check_names=False
     )

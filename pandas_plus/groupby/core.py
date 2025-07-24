@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union, Literal
 from inspect import signature
 import multiprocessing
 
@@ -694,7 +694,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: Union[str, bool] = False,
+    margins: Literal[True, False, "row", "column"]
 ):
     """
     Perform a cross-tabulation of the group keys and values.
@@ -711,8 +711,9 @@ def pivot_table(
         Aggregation function to apply to the values. Can be a string like "sum", "mean", "min", "max", etc.
     mask : Optional[ArrayType1D], default None
         Boolean mask to filter values before cross-tabulation
-    margin : bool, default False
+    margin : Literal[True, False, "row", "column"]
         If True, adds a total row and column to the resulting DataFrame
+        if "row", or "column", add margins to that axis only
     Returns
     -------
     pd.DataFrame
@@ -720,6 +721,16 @@ def pivot_table(
     """
     index, index_names = convert_data_to_arr_list_and_keys(index)
     columns, index_columns = convert_data_to_arr_list_and_keys(columns)
+
+    n0, n1 = len(index), len(columns)
+    levels = list(range(n0 + n1))
+
+    if margins not in [True, False, "row", "column"]:
+        raise ValueError
+    if margins == "row":
+        margins = levels[:n0]
+    elif margins == "column":
+        margins = levels[-n1:]
 
     grouper = GroupBy(index + columns)
     if agg_func == "size":
@@ -732,7 +743,7 @@ def pivot_table(
             margins=margins,
         )
 
-    out = out.unstack(level=[i + len(index) for i, _ in enumerate(columns)])
+    out = out.unstack(level=levels[n0:]).sort_index(axis=1)
 
     return out
 
