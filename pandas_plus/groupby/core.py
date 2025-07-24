@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union, Literal
 from inspect import signature
 import multiprocessing
 
@@ -285,6 +285,22 @@ class GroupBy:
 
         return value_names, value_list, common_index
 
+    def _add_margins(
+        self,
+        result: Union[pd.DataFrame, pd.Series],
+        margins: Union[bool, List[int]],
+        func_name: str,
+    ):
+        if np.ndim(margins) == 1:
+            levels = list(margins)
+        else:
+            levels = None
+        return add_row_margin(
+            result,
+            agg_func="sum" if func_name in ("size", "count") else func_name,
+            levels=levels,
+        )
+
     def _apply_gb_func(
         self,
         func_name: str,
@@ -360,9 +376,8 @@ class GroupBy:
             out = out.loc[observed]
 
         if margins:
-            out = add_row_margin(
-                out, agg_func="sum" if func_name in ("size", "count") else func_name
-            )
+            out = self._add_margins(out, margins=margins, func_name=func_name)
+
         return out
 
     @groupby_method
@@ -388,7 +403,7 @@ class GroupBy:
             out = out.loc[out > 0]
 
         if margins:
-            out = add_row_margin(out, agg_func="sum")
+            out = self._add_margins(out, margins=margins, func_name="size")
 
         return out
 
@@ -679,7 +694,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: bool = False,
+    margins: Literal[True, False, "row", "column"]
 ):
     """
     Perform a cross-tabulation of the group keys and values.
@@ -696,8 +711,9 @@ def pivot_table(
         Aggregation function to apply to the values. Can be a string like "sum", "mean", "min", "max", etc.
     mask : Optional[ArrayType1D], default None
         Boolean mask to filter values before cross-tabulation
-    margin : bool, default False
+    margin : Literal[True, False, "row", "column"]
         If True, adds a total row and column to the resulting DataFrame
+        if "row", or "column", add margins to that axis only
     Returns
     -------
     pd.DataFrame
@@ -705,6 +721,16 @@ def pivot_table(
     """
     index, index_names = convert_data_to_arr_list_and_keys(index)
     columns, index_columns = convert_data_to_arr_list_and_keys(columns)
+
+    n0, n1 = len(index), len(columns)
+    levels = list(range(n0 + n1))
+
+    if margins not in [True, False, "row", "column"]:
+        raise ValueError
+    if margins == "row":
+        margins = levels[:n0]
+    elif margins == "column":
+        margins = levels[-n1:]
 
     grouper = GroupBy(index + columns)
     if agg_func == "size":
@@ -717,7 +743,7 @@ def pivot_table(
             margins=margins,
         )
 
-    out = out.unstack(level=[i + len(index) for i, _ in enumerate(columns)])
+    out = out.unstack(level=levels[n0:]).sort_index(axis=1)
 
     return out
 
@@ -743,7 +769,9 @@ def crosstab(
     )
 
 
-def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
+def add_row_margin(
+    data: pd.Series | pd.DataFrame, agg_func="sum", levels: Optional[List[int]] = None
+):
     """
     Add a total rows to a DataFrame with multi-level index.
     If the DataFrame has a single level index, it adds a 'All' row with the aggregated values.
@@ -767,18 +795,21 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
         data.loc["All"] = data.agg(agg_func)
         return data
 
-    new_levels = [lvl.tolist() + ["All"] for lvl in index.levels]
+    all_levels = list(range(data.index.nlevels))
+    if levels is None:
+        levels = all_levels
+
+    new_levels = [index.levels[lvl].tolist() + ["All"] for lvl in all_levels]
     new_codes = cartesian_product([np.arange(len(lvl)) for lvl in new_levels])
     new_index = pd.MultiIndex(codes=new_codes, levels=new_levels, names=index.names)
-    null_value = _null_value_for_array_type(data)
     out = data.reindex(new_index, fill_value=0)
     keep = pd.Series(False, index=out.index)
     keep.loc[data.index] = True
 
     summaries = []
-    levels = list(range(data.index.nlevels))
+
     for level in levels:
-        other_levels = [lvl for lvl in levels if lvl != level]
+        other_levels = [lvl for lvl in all_levels if lvl != level]
         summary = data.groupby(level=other_levels, observed=True).agg(agg_func)
         summary = add_row_margin(summary, agg_func)
         summary = pd.concat(
@@ -791,6 +822,9 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
     for summary in summaries:
         out.loc[summary.index] = summary
         keep.loc[summary.index] = True
+
+    for lvl in set(all_levels) - set(levels):
+        out.drop('All', level=lvl, inplace=True)
 
     return out[keep]
 
