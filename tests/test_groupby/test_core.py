@@ -28,11 +28,13 @@ class TestGroupBy:
     ):
         index = pd.RangeIndex(2, 11)
         key = pd.Series(
-            [1, 1, 2, 1, 3, 3, 6, 1, 6], index=index, dtype=key_dtype,
+            [1, 1, 2, 1, 3, 3, 6, 1, 6],
+            index=index,
+            dtype=key_dtype,
         )
-        values = pd.Series(
-            [-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index
-        ).astype(value_dtype)
+        values = pd.Series([-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index).astype(
+            value_dtype
+        )
 
         if use_mask:
             mask = key != 1
@@ -40,7 +42,7 @@ class TestGroupBy:
         else:
             mask = None
             expected = values.groupby(key).agg(method)
-        if key_dtype == 'category':
+        if key_dtype == "category":
             expected.index = np.array(expected.index)
 
         key = key_type(key)
