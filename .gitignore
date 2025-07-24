@@ -22,6 +22,7 @@
 .tags
 .cache/
 .vscode/
+.claude
 
 # Compiled source #
 ###################
