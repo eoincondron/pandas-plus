@@ -591,11 +591,14 @@ class GroupBy:
     @groupby_method
     def density(
         self,
-        values: ArrayCollection,
+        values: Optional[ArrayCollection] = None,
         mask: Optional[ArrayType1D] = None,
         margins: bool = False,
     ):
-        totals = self.sum(values, mask, margins=True)
+        if values is None:
+            totals = self.size(mask, margins=True)
+        else:
+            totals = self.sum(values, mask, margins=True)
         if self.result_index.nlevels == 1:
             density = 100 * totals / totals.loc["All"]
             if margins:
