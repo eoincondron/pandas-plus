@@ -778,3 +778,11 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
         keep.loc[summary.index] = True
 
     return out[keep]
+
+
+def value_counts(x, normalize: bool = False, mask: Optional[ArrayType1D] = None):
+    """ """
+    vc = GroupBy.size(x)
+    if normalize:
+        vc = vc / vc.sum()
+    return vc
