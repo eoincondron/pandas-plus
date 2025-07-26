@@ -271,6 +271,38 @@ class TestGroupBy:
         with pytest.raises(ValueError):
             getattr(GroupBy, agg_func)(**kwargs)
 
+    @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "count"])
+    def test_lazyframe_support(self, method):
+        """Test that LazyFrame inputs work with GroupBy operations."""
+        # Create test data with consistent types
+        key_data = [1, 1, 2, 1, 3, 3, 6, 1, 6]
+        value_data = [1.0, 2.0, 4.0, 3.5, 8.0, 6.0, 3.0, 1.0, 12.6]  # All floats
+        
+        # Create LazyFrame 
+        lazy_df = pl.DataFrame({"values": value_data}).lazy()
+        key = pd.Series(key_data)
+        
+        # Test with LazyFrame as values - results in DataFrame, so compare with DataFrame
+        result = getattr(GroupBy, method)(key, lazy_df)
+        if method == "count":
+            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).count()})
+        else:
+            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).agg(method)})
+        
+        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        
+        # Test with LazyFrame as group key - single column LazyFrame becomes Series
+        key_lazy_df = pl.DataFrame({"key": key_data}).lazy()
+        values = pd.Series(value_data, dtype='float64')
+        
+        result = getattr(GroupBy, method)(key_lazy_df, values)
+        if method == "count":
+            expected = values.groupby(pd.Series(key_data, name="key")).count()
+        else:
+            expected = values.groupby(pd.Series(key_data, name="key")).agg(method)
+        
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
 
 @pytest.mark.parametrize("nlevels", [1, 2, 3])
 @pytest.mark.parametrize("aggfunc", ["sum", "min", "max"])

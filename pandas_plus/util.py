@@ -21,7 +21,7 @@ MIN_INT = np.iinfo(np.int64).min
 MAX_INT = np.iinfo(np.int64).max
 
 ArrayType1D = Union[np.ndarray, pl.Series, pd.Series, pd.Index, pd.Categorical]
-ArrayType2D = Union[np.ndarray, pl.DataFrame, pd.DataFrame, pd.MultiIndex]
+ArrayType2D = Union[np.ndarray, pl.DataFrame, pl.LazyFrame, pd.DataFrame, pd.MultiIndex]
 
 
 def is_null(x):
@@ -448,7 +448,10 @@ def convert_data_to_arr_list_and_keys(
         if name is None:
             name = TempName(f"{temp_name_root}0")
         return [data], [name]
-    elif isinstance(data, (pl.DataFrame, pd.DataFrame)):
+    elif isinstance(data, (pl.DataFrame, pl.LazyFrame, pd.DataFrame)):
+        if isinstance(data, pl.LazyFrame):
+            # Collect LazyFrame to DataFrame first
+            data = data.collect()
         names = list(data.columns)
         return [data[key] for key in names], names
     else:

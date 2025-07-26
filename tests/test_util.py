@@ -155,6 +155,14 @@ class TestArrayFunctions:
         for i, col in enumerate(df.columns):
             pl.testing.assert_series_equal(result_arrs[i], df[col])
 
+        # Test with polars LazyFrame
+        lazy_df = pl.DataFrame({"x": [1, 2], "y": [3, 4]}).lazy()
+        result_arrs, result_names = convert_data_to_arr_list_and_keys(lazy_df)
+        assert result_names == ["x", "y"]
+        expected_df = lazy_df.collect()
+        for i, col in enumerate(expected_df.columns):
+            pl.testing.assert_series_equal(result_arrs[i], expected_df[col])
+
     def test_unsupported_type(self):
         # Test with unsupported type
         with pytest.raises(TypeError, match="Input type <class 'int'> not supported"):
