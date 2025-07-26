@@ -458,7 +458,7 @@ def convert_data_to_arr_list_and_keys(
         raise TypeError(f"Input type {type(data)} not supported")
 
 
-def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int):
+def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int = None):
     """
     Create a categorical with pretty labels by cutting data into bins.
 
@@ -503,6 +503,13 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int):
     bins = np.sort(bins)
     np_type = np.asarray(x).dtype
     is_integer = np_type.kind in "ui" and bins.dtype.kind in "ui"
+
+    if precision is None and not is_integer:
+        def get_decimals(x):
+            x = str(x)
+            int, *decimals = str(x).split('.')
+            return len(decimals)
+        precision = max(map(get_decimals, bins))
 
     labels = [f" <= {bins[0]}"]
     for left, right in zip(bins, bins[1:]):
