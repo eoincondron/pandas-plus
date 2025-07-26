@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 from pandas_plus.groupby.core import GroupBy, add_row_margin, pivot_table
@@ -15,33 +16,40 @@ def assert_pd_equal(left, right, **kwargs):
 class TestGroupBy:
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
-    @pytest.mark.parametrize("key_dtype", [int, str, float, "float32"])
-    @pytest.mark.parametrize("key_type", [np.array, pd.Series])
-    @pytest.mark.parametrize("value_dtype", [int, float, "float32", bool])
-    @pytest.mark.parametrize("value_type", [np.array, pd.Series])
+    @pytest.mark.parametrize("key_dtype", [int, str, float, "float32", "category"])
+    @pytest.mark.parametrize("key_type", [np.array, pd.Series, pl.Series])
+    @pytest.mark.parametrize(
+        "value_dtype", [int, float, "float32", bool, "double[pyarrow]"]
+    )
+    @pytest.mark.parametrize("value_type", [np.array, pd.Series, pl.Series])
     @pytest.mark.parametrize("use_mask", [False, True])
     def test_basic(
         self, method, key_dtype, key_type, value_dtype, value_type, use_mask
     ):
         index = pd.RangeIndex(2, 11)
-        key = key_type(
-            pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6], index=index, dtype=key_dtype)
+        key = pd.Series(
+            [1, 1, 2, 1, 3, 3, 6, 1, 6],
+            index=index,
+            dtype=key_dtype,
         )
-        values = value_type(
-            pd.Series([-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index)
-        ).astype(value_dtype)
+        values = pd.Series([-1, 0.3, 4, 3.5, 8, 6, 3, 1, 12.6], index=index).astype(
+            value_dtype
+        )
 
         if use_mask:
-            mask = pd_mask = key.astype(int) != 1
+            mask = key != 1
+            expected = values[mask].groupby(key[mask], observed=True).agg(method)
         else:
             mask = None
-            pd_mask = slice(None)
+            expected = values.groupby(key).agg(method)
+        if key_dtype == "category":
+            expected.index = np.array(expected.index)
+
+        key = key_type(key)
+        values = value_type(values)
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
 
-        expected = getattr(
-            pd.Series(values, index=index)[pd_mask].groupby(key[pd_mask]), method
-        )()
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
@@ -49,6 +57,20 @@ class TestGroupBy:
         result = getattr(gb, method)(values, mask=mask)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
+
+    def test_pyarrow_dictionary_key(self):
+        key = pl.Series("bar", ["a", "b"] * 3, dtype=pl.Categorical)
+        values = pl.Series(
+            "foo",
+            np.arange(6),
+        )
+        result = GroupBy.sum(key, values)
+        expected = values.to_pandas().groupby(key.to_pandas().astype(str)).sum()
+        pd.testing.assert_series_equal(result, expected)
+
+        key = key.to_pandas(types_mapper=pd.ArrowDtype)
+        result = GroupBy.sum(key, values)
+        pd.testing.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -115,16 +137,15 @@ class TestGroupBy:
         pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
-    @pytest.mark.parametrize("value_type", [pd.DataFrame, dict])
+    @pytest.mark.parametrize("value_type", [pd.DataFrame, dict, pl.DataFrame])
     @pytest.mark.parametrize("use_mask", [False, True])
     def test_mapping_variants(self, method, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
-        values = value_type(
-            dict(
-                a=np.random.rand(len(key)),
-                b=np.random.randint(0, 9, len(key)),
-            )
+        value_dict = dict(
+            a=np.random.rand(len(key)),
+            b=np.random.randint(0, 9, len(key)),
         )
+        values = value_type(value_dict)
         if use_mask:
             mask = pd_mask = key != 1
         else:
@@ -134,7 +155,7 @@ class TestGroupBy:
         result = getattr(GroupBy, method)(key, values, mask=mask)
 
         expected = getattr(
-            pd.DataFrame(values)[pd_mask].groupby(key[pd_mask]), method
+            pd.DataFrame(value_dict)[pd_mask].groupby(key[pd_mask]), method
         )()
         pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
 
@@ -249,6 +270,38 @@ class TestGroupBy:
         kwargs[arg_name_to_be_wrong].index += 1
         with pytest.raises(ValueError):
             getattr(GroupBy, agg_func)(**kwargs)
+
+    @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "count"])
+    def test_lazyframe_support(self, method):
+        """Test that LazyFrame inputs work with GroupBy operations."""
+        # Create test data with consistent types
+        key_data = [1, 1, 2, 1, 3, 3, 6, 1, 6]
+        value_data = [1.0, 2.0, 4.0, 3.5, 8.0, 6.0, 3.0, 1.0, 12.6]  # All floats
+        
+        # Create LazyFrame 
+        lazy_df = pl.DataFrame({"values": value_data}).lazy()
+        key = pd.Series(key_data)
+        
+        # Test with LazyFrame as values - results in DataFrame, so compare with DataFrame
+        result = getattr(GroupBy, method)(key, lazy_df)
+        if method == "count":
+            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).count()})
+        else:
+            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).agg(method)})
+        
+        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        
+        # Test with LazyFrame as group key - single column LazyFrame becomes Series
+        key_lazy_df = pl.DataFrame({"key": key_data}).lazy()
+        values = pd.Series(value_data, dtype='float64')
+        
+        result = getattr(GroupBy, method)(key_lazy_df, values)
+        if method == "count":
+            expected = values.groupby(pd.Series(key_data, name="key")).count()
+        else:
+            expected = values.groupby(pd.Series(key_data, name="key")).agg(method)
+        
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize("nlevels", [1, 2, 3])

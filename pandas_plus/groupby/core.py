@@ -345,12 +345,11 @@ class GroupBy:
                 result = out_dict[key] = pd.Series(result[:-1], self.result_index)
 
             return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+            out = pd.DataFrame(out_dict)
             if return_1d:
-                out = result
+                out = out.squeeze(axis=1)
                 if get_array_name(values) is None:
                     out.name = None
-            else:
-                out = pd.DataFrame(out_dict)
 
         if not transform:
             if mask is not None:
