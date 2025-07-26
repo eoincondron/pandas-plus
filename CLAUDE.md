@@ -1,9 +1,9 @@
 # GroupBy Package Development Guidelines
 
 ## Build/Test/Lint Commands
-- Run all tests: `conda activate pd22 && cd /path/to/groupby && python -m pytest tests/`
-- Run single test: `conda activate pd22 && cd /path/to/groupby && python -m pytest tests/test_file.py::TestClass::test_method -v`
-- Run with parallelism: `conda activate pd22 && cd /path/to/groupby && python -m pytest tests/ -xvs`
+- Run all tests: `conda activate pandas-plus-dev && cd /path/to/groupby && python -m pytest tests/`
+- Run single test: `conda activate pandas-plus-dev && cd /path/to/groupby && python -m pytest tests/test_file.py::TestClass::test_method -v`
+- Run with parallelism: `conda activate pd22 pandas-plus-dev cd /path/to/groupby && python -m pytest tests/ -xvs`
 
 ## Code Style Guidelines
 - **Imports**: Order by standard library, third-party, local modules. Group imports within these categories.
