@@ -399,12 +399,13 @@ class TempName(str): ...
 
 
 def series_is_numeric(series: pl.Series | pd.Series):
+    dtype = series.dtype
     if isinstance(series, pl.Series):
-        return series.dtype.is_numeric() or series.dtype.is_temporal()
+        return dtype.is_numeric() or dtype.is_temporal() or dtype == pl.Boolean
     else:
         return not (
             pd.api.types.is_object_dtype(series)
-            or isinstance(series.dtype, pd.CategoricalDtype)
+            or isinstance(dtype, pd.CategoricalDtype)
         )
 
 

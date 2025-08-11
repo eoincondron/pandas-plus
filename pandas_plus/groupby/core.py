@@ -261,7 +261,7 @@ class GroupBy:
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
     ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
-        if isinstance(values, (pd.DataFrame)):
+        if isinstance(values, (pd.DataFrame, pl.DataFrame)):
             value_list, value_names = map(
                 list,
                 zip(
