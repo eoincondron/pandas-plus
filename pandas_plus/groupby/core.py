@@ -273,6 +273,12 @@ class GroupBy:
                 ),
             )
 
+        if len(set(value_names)) != len(value_names):
+            raise ValueError(
+                "Values must have unique names. "
+                f"Found duplicates: {set(value_names)}"
+            )
+
         to_check = value_list + [self.group_ikey]
         if mask is not None:
             to_check.append(mask)
@@ -315,12 +321,6 @@ class GroupBy:
             Results of the groupby operation
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-
-        if len(set(value_names)) != len(value_names):
-            raise ValueError(
-                "Values must have unique names. "
-                f"Found duplicates: {set(value_names)}"
-            )
 
         np_values = list(map(val_to_numpy, value_list))
         func = getattr(numba_funcs, f"group_{func_name}")
