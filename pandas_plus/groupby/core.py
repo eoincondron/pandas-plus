@@ -802,7 +802,6 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
     new_levels = [lvl.tolist() + ["All"] for lvl in index.levels]
     new_codes = cartesian_product([np.arange(len(lvl)) for lvl in new_levels])
     new_index = pd.MultiIndex(codes=new_codes, levels=new_levels, names=index.names)
-    null_value = _null_value_for_array_type(data)
     out = data.reindex(new_index, fill_value=0)
     keep = pd.Series(False, index=out.index)
     keep.loc[data.index] = True
