@@ -427,8 +427,7 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
-        kwargs = dict(values=values, mask=mask, transform=transform, margins=margins)
-        sum_, count = self.sum(**kwargs), self.count(**kwargs)
+        sum_, count = GroupBy.sum(**locals()), GroupBy.count(**locals())
         if sum_.ndim == 2:
             timestamp_cols = [col for col, d in sum_.dtypes.items() if d.kind in "mM"]
             tmp_types = {col: "int64" for col in timestamp_cols}
@@ -642,7 +641,7 @@ class GroupBy:
                 names=[*self.result_index.names, None],
             )[keep]
 
-        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        return_1d = isinstance(values, ArrayType1D)
         if return_1d:
             return pd.Series(value_list[0][ilocs], out_index)
         else:
