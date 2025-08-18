@@ -654,10 +654,9 @@ class GroupBy:
 
         return density
 
-    def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         common_index = _validate_input_lengths_and_indexes(value_list)
-        ilocs = numba_funcs.find_first_n(self.group_ikey, self.ngroups, n=n).flatten()
         keep = ilocs > -1
         ilocs = ilocs[keep]
 
