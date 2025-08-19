@@ -20,6 +20,36 @@ from .. import nanops
 
 
 @nb.njit
+def _find_nth(
+    group_key: np.ndarray,
+    ngroups: np.ndarray,
+    n: int,
+    mask: Optional[np.ndarray] = None,
+):
+    out = np.full(ngroups, -1, dtype=np.int64)
+    seen = np.zeros(ngroups, dtype=np.int16)
+    masked = mask is not None
+    if n >= 0:
+        rng = range(len(group_key))
+    else:
+        rng = range(len(group_key) - 1, -1, -1)
+        n = -n - 1 
+
+    for i in rng:
+        k = group_key[i]
+        if k < 0:
+            continue
+        if masked and not mask[i]:
+            continue
+        if seen[k] == n:
+            assert out[k] == -1
+            out[k] = i
+        seen[k] += 1
+
+    return out
+
+
+@nb.njit
 def _find_first_or_last_n(
     group_key: np.ndarray,
     ngroups: np.ndarray,

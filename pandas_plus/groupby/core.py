@@ -393,6 +393,14 @@ class GroupBy:
 
     @cached_property
     def key_count(self):
+        """
+        Count of observations for each group, including empty groups.
+
+        Returns
+        -------
+        pd.Series
+            Series with group counts, including zero counts for empty groups
+        """
         return self.size(observed_only=False)
 
     @groupby_method
@@ -403,6 +411,25 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        """
+        Count non-null values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to count, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before counting.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Count of non-null values for each group.
+        """
         return self._apply_gb_func(
             "count", values=values, mask=mask, transform=transform, margins=margins
         )
@@ -415,6 +442,25 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        """
+        Calculate sum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to sum, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before summing.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Sum of values for each group.
+        """
         return self._apply_gb_func(
             "sum", values=values, mask=mask, transform=transform, margins=margins
         )
@@ -449,6 +495,25 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        """
+        Calculate minimum value in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to find minimum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before finding minimum.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Minimum value for each group.
+        """
         return self._apply_gb_func(
             "min", values=values, mask=mask, transform=transform, margins=margins
         )
@@ -461,6 +526,25 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        """
+        Calculate maximum value in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to find maximum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before finding maximum.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Maximum value for each group.
+        """
         return self._apply_gb_func(
             "max", values=values, mask=mask, transform=transform, margins=margins
         )
@@ -518,6 +602,27 @@ class GroupBy:
         margins: bool = False,
         ddof: int = 0
     ):
+        """
+        Calculate variance of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate variance for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating variance.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+        ddof : int, default 0
+            Delta degrees of freedom.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Variance of values for each group.
+        """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(mask=mask, margins=margins, transform=transform)
         sq_mean = self.mean({k: v ** 2 for k, v in zip(value_names, value_list)}, **kwargs)
@@ -541,8 +646,29 @@ class GroupBy:
         margins: bool = False,
         ddof: int = 0
     ):
+        """
+        Calculate standard deviation of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate standard deviation for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating standard deviation.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+        ddof : int, default 0
+            Delta degrees of freedom.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Standard deviation of values for each group.
+        """
         return GroupBy.var(**locals()) ** .5
-        
+
     @groupby_method
     def agg(
         self,
@@ -552,6 +678,27 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        """
+        Apply aggregation function(s) to values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to aggregate, can be a single array/Series or a collection of them.
+        agg_func : callable, str, or list of str
+            Aggregation function(s) to apply. Can be a single function name or list of function names.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before aggregation.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Aggregated values for each group.
+        """
         if np.ndim(agg_func) == 0:
             if isinstance(agg_func, Callable):
                 agg_func = agg_func.__name__
@@ -588,6 +735,27 @@ class GroupBy:
         agg_func="sum",
         margins: bool = False,
     ) -> pd.Series | pd.DataFrame:
+        """
+        Calculate ratio of two aggregated values in each group.
+
+        Parameters
+        ----------
+        values1 : ArrayCollection
+            Numerator values for ratio calculation.
+        values2 : ArrayCollection  
+            Denominator values for ratio calculation.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating ratio.
+        agg_func : str, default "sum"
+            Aggregation function to apply before ratio calculation.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Ratio of aggregated values1 to values2 for each group.
+        """
         # check for nullity
         value_list_1, _ = convert_data_to_arr_list_and_keys(values1)
         value_list_2, _ = convert_data_to_arr_list_and_keys(values2)
@@ -605,7 +773,6 @@ class GroupBy:
         kwargs = dict(mask=mask, agg_func=agg_func, margins=margins)
         return self.agg(values1, **kwargs) / self.agg(values2, **kwargs)
 
-    @groupby_method
     def subset_ratio(
         self,
         values: ArrayCollection,
@@ -614,6 +781,27 @@ class GroupBy:
         agg_func="sum",
         margins: bool = False,
     ) -> pd.Series | pd.DataFrame:
+        """
+        Calculate ratio of subset to total values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate ratio for.
+        subset_mask : ArrayType1D
+            Boolean mask defining the subset of interest.
+        global_mask : ArrayType1D, optional
+            Optional global boolean mask to apply to all calculations.
+        agg_func : str, default "sum"
+            Aggregation function to apply before ratio calculation.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Ratio of subset aggregated values to total aggregated values for each group.
+        """
         # check for nullity
         kwargs = dict(agg_func=agg_func, margins=margins, values=values)
         return self.agg(**kwargs, mask=subset_mask & global_mask) / self.agg(
@@ -627,6 +815,23 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         margins: bool = False,
     ):
+        """
+        Calculate density (percentage) of values in each group relative to total.
+
+        Parameters
+        ----------
+        values : ArrayCollection, optional
+            Values to calculate density for. If None, uses group sizes.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating density.
+        margins : bool, default False
+            If True, include total values in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Density values as percentages for each group.
+        """
         if values is None:
             totals = self.size(mask, margins=True)
         else:
