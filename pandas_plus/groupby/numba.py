@@ -617,3 +617,532 @@ def _group_diff_or_shift(
 
         previous[key] = values[i]
     return out
+
+
+# ===== Rolling Aggregation Methods =====
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _rolling_sum_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    """
+    Core numba function for rolling sum on 1D values.
+    
+    Parameters
+    ----------
+    group_key : np.ndarray
+        1D array defining the groups
+    values : np.ndarray
+        1D array of values to aggregate
+    ngroups : int
+        Number of unique groups
+    window : int
+        Rolling window size (constant across all groups)
+    mask : Optional[np.ndarray]
+        Boolean mask to filter elements
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling sums for each position
+    """
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+    
+    # Track rolling sums and circular buffers for each group
+    group_sums = np.zeros(ngroups)
+    group_buffers = np.full((ngroups, window), np.nan)
+    group_positions = np.zeros(ngroups, dtype=nb.int64)
+    group_counts = np.zeros(ngroups, dtype=nb.int64)
+    
+    for i in range(len(group_key)):
+        key = group_key[i]
+        
+        if key < 0:  # Skip null keys
+            continue
+            
+        if masked and not mask[i]:
+            continue
+            
+        val = values[i]
+        
+        if np.isnan(val):  # Skip NaN values
+            continue
+            
+        # Get current position in circular buffer for this group
+        pos = group_positions[key]
+        count = group_counts[key]
+        
+        # If buffer is full, subtract the value that will be replaced
+        if count >= window:
+            old_val = group_buffers[key, pos]
+            if not np.isnan(old_val):
+                group_sums[key] -= old_val
+        
+        # Add new value
+        group_buffers[key, pos] = val
+        group_sums[key] += val
+        
+        # Update position and count
+        group_positions[key] = (pos + 1) % window
+        if count < window:
+            group_counts[key] = count + 1
+            
+        out[i] = group_sums[key]
+    
+    return out
+
+
+def _apply_rolling_1d_to_2d(
+    rolling_1d_func: Callable,
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+    n_threads: int = 1,
+):
+    """
+    General wrapper for applying a 1D rolling function to 2D values.
+    
+    This function takes any 1D rolling function and applies it column-wise
+    to 2D input values, with optional parallel processing.
+    
+    Parameters
+    ----------
+    rolling_1d_func : callable
+        The 1D rolling function to apply to each column
+    group_key : np.ndarray
+        1D array defining the groups
+    values : np.ndarray
+        2D array of values to aggregate (rows x columns)
+    ngroups : int
+        Number of unique groups
+    window : int
+        Rolling window size (constant across all groups)
+    mask : Optional[np.ndarray]
+        Boolean mask to filter elements
+    n_threads : int
+        Number of threads to use for parallel column processing
+        
+    Returns
+    -------
+    np.ndarray
+        Results for each position and column
+    """
+    n_rows, n_cols = values.shape
+    
+    if n_threads == 1 or n_cols == 1:
+        # Single-threaded: process columns sequentially
+        result = np.empty((n_rows, n_cols))
+        for col in range(n_cols):
+            result[:, col] = rolling_1d_func(group_key, values[:, col], ngroups, window, mask)
+        return result
+    else:
+        # Multi-threaded: process columns in parallel
+        def process_column(col_idx):
+            return rolling_1d_func(group_key, values[:, col_idx], ngroups, window, mask)
+        
+        # Use parallel_map to process columns in parallel
+        column_results = parallel_map(process_column, [(i,) for i in range(n_cols)], max_workers=n_threads)
+        
+        # Combine results into 2D array
+        result = np.column_stack(column_results)
+        return result
+
+
+def _apply_rolling(
+    operation: str,
+    group_key: ArrayType1D,
+    values: ArrayType1D | np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    General dispatcher for rolling operations that handles 1D vs 2D cases.
+    
+    This function dispatches to the appropriate 1D function or uses the 2D wrapper
+    based on the dimensionality of the input values.
+    
+    Parameters
+    ----------
+    operation : str
+        Name of the rolling operation ('sum', 'mean', 'min', 'max')
+    group_key : ArrayType1D
+        1D array defining the groups
+    values : ArrayType1D or np.ndarray
+        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    ngroups : int
+        Number of unique groups in group_key
+    window : int
+        Size of the rolling window (constant across all groups)
+    mask : Optional[ArrayType1D]
+        Boolean mask to filter elements
+    n_threads : int, default 1
+        Number of threads to use for parallel column processing (2D values only)
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling aggregation results with same shape as values
+        
+    Raises
+    ------
+    ValueError
+        If operation is not supported or values are not 1D/2D
+    """
+    # Map operation names to 1D functions
+    rolling_1d_funcs = {
+        'sum': _rolling_sum_1d,
+        'mean': _rolling_mean_1d,
+        'min': _rolling_min_1d,
+        'max': _rolling_max_1d,
+    }
+    
+    if operation not in rolling_1d_funcs:
+        raise ValueError(f"Unsupported rolling operation: {operation}")
+    
+    # Convert inputs to appropriate numpy arrays
+    group_key = np.asarray(group_key, dtype=np.int64)
+    values = np.asarray(values, dtype=np.float64)
+    
+    if mask is not None:
+        mask = np.asarray(mask, dtype=bool)
+    
+    rolling_1d_func = rolling_1d_funcs[operation]
+    
+    if values.ndim == 1:
+        return rolling_1d_func(group_key, values, ngroups, window, mask)
+    elif values.ndim == 2:
+        return _apply_rolling_1d_to_2d(rolling_1d_func, group_key, values, ngroups, window, mask, n_threads)
+    else:
+        raise ValueError(f"values must be 1D or 2D, got {values.ndim}D")
+
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _rolling_mean_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    """
+    Core numba function for rolling mean on 1D values.
+    """
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+    
+    # Track windows for each group
+    group_windows = nb.typed.List()
+    for _ in range(ngroups):
+        group_windows.append(nb.typed.List.empty_list(nb.float64))
+    
+    for i in range(len(group_key)):
+        key = group_key[i]
+        
+        if key < 0:
+            continue
+            
+        if masked and not mask[i]:
+            continue
+        
+        val = values[i]
+        
+        if is_null(val):
+            continue
+            
+        window_vals = group_windows[key]
+        window_vals.append(val)
+        
+        if len(window_vals) > window:
+            window_vals.pop(0)
+            
+        # Calculate mean of current window
+        window_sum = 0.0
+        for v in window_vals:
+            window_sum += v
+            
+        out[i] = window_sum / len(window_vals)
+    
+    return out
+
+
+
+
+def rolling_sum(
+    group_key: ArrayType1D,
+    values: ArrayType1D | np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    Calculate rolling sum within each group using optimized circular buffer approach.
+    
+    This function uses an optimized algorithm that maintains running sums and circular
+    buffers for O(1) add/remove operations, making it much faster than naive 
+    implementations that recalculate sums for each window.
+    
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups
+    values : ArrayType1D or np.ndarray
+        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    ngroups : int
+        Number of unique groups in group_key
+    window : int
+        Size of the rolling window (constant across all groups)
+    mask : Optional[ArrayType1D]
+        Boolean mask to filter elements
+    n_threads : int, default 1
+        Number of threads to use for parallel column processing (2D values only)
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling sums with same shape as values
+        
+    Notes
+    -----
+    - Window size is constant across all groups
+    - Uses circular buffer with O(1) operations for optimal performance
+    - Handles NaN values by skipping them in calculations
+    - Supports both 1D and 2D (multi-column) input values
+        
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pandas_plus.groupby.numba import rolling_sum
+    >>> 
+    >>> # 1D example
+    >>> group_key = np.array([0, 0, 0, 1, 1, 1])
+    >>> values = np.array([1, 2, 3, 4, 5, 6])
+    >>> result = rolling_sum(group_key, values, ngroups=2, window=2)
+    >>> print(result)
+    [1. 3. 5. 4. 9. 11.]
+    >>> 
+    >>> # 2D example (multiple columns)
+    >>> values_2d = np.array([[1, 10], [2, 20], [3, 30], [4, 40], [5, 50], [6, 60]])
+    >>> result_2d = rolling_sum(group_key, values_2d, ngroups=2, window=2)
+    >>> print(result_2d)
+    [[  1.  10.]
+     [  3.  30.]
+     [  5.  50.]
+     [  4.  40.]
+     [  9.  90.]
+     [ 11. 110.]]
+    """
+    return _apply_rolling("sum", group_key, values, ngroups, window, mask, n_threads)
+
+
+def rolling_mean(
+    group_key: ArrayType1D,
+    values: ArrayType1D | np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    Calculate rolling mean within each group.
+    
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups
+    values : ArrayType1D or np.ndarray
+        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    ngroups : int
+        Number of unique groups in group_key
+    window : int
+        Size of the rolling window
+    mask : Optional[ArrayType1D]
+        Boolean mask to filter elements
+    n_threads : int, default 1
+        Number of threads to use for parallel column processing (2D values only)
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling means with same shape as values
+    """
+    return _apply_rolling("mean", group_key, values, ngroups, window, mask, n_threads)
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _rolling_min_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    """
+    Core numba function for rolling min on 1D values.
+    """
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+    
+    # Track windows for each group
+    group_windows = nb.typed.List()
+    for _ in range(ngroups):
+        group_windows.append(nb.typed.List.empty_list(nb.float64))
+    
+    for i in range(len(group_key)):
+        key = group_key[i]
+        
+        if key < 0:
+            continue
+            
+        if masked and not mask[i]:
+            continue
+            
+        val = values[i]
+        
+        if np.isnan(val):
+            continue
+            
+        window_vals = group_windows[key]
+        window_vals.append(val)
+        
+        if len(window_vals) > window:
+            window_vals.pop(0)
+            
+        # Calculate min of current window
+        window_min = np.inf
+        for v in window_vals:
+            if v < window_min:
+                window_min = v
+                
+        out[i] = window_min
+    
+    return out
+
+
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _rolling_max_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    """
+    Core numba function for rolling max on 1D values.
+    """
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+    
+    # Track windows for each group
+    group_windows = nb.typed.List()
+    for _ in range(ngroups):
+        group_windows.append(nb.typed.List.empty_list(nb.float64))
+    
+    for i in range(len(group_key)):
+        key = group_key[i]
+        
+        if key < 0:
+            continue
+            
+        if masked and not mask[i]:
+            continue
+            
+        val = values[i]
+        
+        if np.isnan(val):
+            continue
+            
+        window_vals = group_windows[key]
+        window_vals.append(val)
+        
+        if len(window_vals) > window:
+            window_vals.pop(0)
+            
+        # Calculate max of current window
+        window_max = -np.inf
+        for v in window_vals:
+            if v > window_max:
+                window_max = v
+                
+        out[i] = window_max
+    
+    return out
+
+
+
+
+def rolling_min(
+    group_key: ArrayType1D,
+    values: ArrayType1D | np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    Calculate rolling minimum within each group.
+    
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups
+    values : ArrayType1D or np.ndarray
+        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    ngroups : int
+        Number of unique groups in group_key
+    window : int
+        Size of the rolling window
+    mask : Optional[ArrayType1D]
+        Boolean mask to filter elements
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling minimums with same shape as values
+    """
+    return _apply_rolling("min", group_key, values, ngroups, window, mask, n_threads)
+
+
+def rolling_max(
+    group_key: ArrayType1D,
+    values: ArrayType1D | np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    """
+    Calculate rolling maximum within each group.
+    
+    Parameters
+    ----------
+    group_key : ArrayType1D
+        1D array defining the groups
+    values : ArrayType1D or np.ndarray
+        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    ngroups : int
+        Number of unique groups in group_key
+    window : int
+        Size of the rolling window
+    mask : Optional[ArrayType1D]
+        Boolean mask to filter elements
+        
+    Returns
+    -------
+    np.ndarray
+        Rolling maximums with same shape as values
+    """
+    return _apply_rolling("max", group_key, values, ngroups, window, mask, n_threads)

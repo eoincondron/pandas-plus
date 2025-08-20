@@ -14,6 +14,10 @@ from pandas_plus.groupby.numba import (
     group_max,
     group_min,
     group_sum,
+    rolling_sum,
+    rolling_mean,
+    rolling_min,
+    rolling_max,
 )
 from pandas_plus.util import is_null as py_isnull, MIN_INT, NumbaReductionOps
 
@@ -571,3 +575,247 @@ def test_group_first_last(method, dtype, expected):
     result = func(group_key, values, ngroups=3)
     expected = np.array(expected, dtype=dtype)
     np.testing.assert_array_equal(result, expected)
+
+
+class TestRollingAggregation:
+    """Test class for rolling aggregation functions."""
+
+    def test_rolling_sum_1d_basic(self):
+        """Test basic rolling sum with 1D values."""
+        # Group key: [0, 0, 0, 1, 1, 1] 
+        # Values:    [1, 2, 3, 4, 5, 6]
+        # Window:    2
+        # Expected rolling sums:
+        # Group 0: [1, 3, 5] (1, 1+2, 2+3)
+        # Group 1: [4, 9, 11] (4, 4+5, 5+6) 
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = np.array([1.0, 3.0, 5.0, 4.0, 9.0, 11.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_sum_1d_window_larger_than_group(self):
+        """Test rolling sum with window size larger than group size."""
+        group_key = np.array([0, 0, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
+        ngroups = 2
+        window = 5  # Larger than group size
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = np.array([1.0, 3.0, 3.0, 7.0])  # Should sum all available values
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_sum_2d_basic(self):
+        """Test basic rolling sum with 2D values (multiple columns)."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([
+            [1.0, 10.0],
+            [2.0, 20.0], 
+            [3.0, 30.0],
+            [4.0, 40.0],
+            [5.0, 50.0]
+        ], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = np.array([
+            [1.0, 10.0],   # First value in group 0
+            [3.0, 30.0],   # 1+2, 10+20 for group 0
+            [5.0, 50.0],   # 2+3, 20+30 for group 0
+            [4.0, 40.0],   # First value in group 1
+            [9.0, 90.0]    # 4+5, 40+50 for group 1
+        ])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_sum_with_mask(self):
+        """Test rolling sum with mask filtering."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64)
+        mask = np.array([True, False, True, True, True, False], dtype=bool)
+        ngroups = 2
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window, mask)
+        
+        # Only positions where mask=True should have results
+        # Group 0: positions 0,2 with values 1,3 -> [1, NaN, 4] (1, skip, 1+3)
+        # Group 1: positions 3,4 with values 4,5 -> [4, 9, NaN] (4, 4+5, skip)
+        expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0, np.nan])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_sum_with_nan_values(self):
+        """Test rolling sum with NaN values in input."""
+        group_key = np.array([0, 0, 0, 1, 1], dtype=np.int64)
+        values = np.array([1.0, np.nan, 3.0, 4.0, 5.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        
+        # NaN values should be skipped
+        # Group 0: [1, NaN, 4] (1, skip NaN, 1+3)
+        # Group 1: [4, 9] (4, 4+5)
+        expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_mean_1d_basic(self):
+        """Test basic rolling mean with 1D values."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([2.0, 4.0, 6.0, 8.0, 10.0, 12.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_mean(group_key, values, ngroups, window)
+        # Group 0: [2, 3, 5] (2/1, (2+4)/2, (4+6)/2)
+        # Group 1: [8, 9, 11] (8/1, (8+10)/2, (10+12)/2)
+        expected = np.array([2.0, 3.0, 5.0, 8.0, 9.0, 11.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_min_1d_basic(self):
+        """Test basic rolling min with 1D values."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([3.0, 1.0, 4.0, 6.0, 2.0, 5.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_min(group_key, values, ngroups, window)
+        # Group 0: [3, 1, 1] (3, min(3,1), min(1,4))
+        # Group 1: [6, 2, 2] (6, min(6,2), min(2,5))
+        expected = np.array([3.0, 1.0, 1.0, 6.0, 2.0, 2.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_max_1d_basic(self):
+        """Test basic rolling max with 1D values."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([3.0, 1.0, 4.0, 6.0, 2.0, 5.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_max(group_key, values, ngroups, window)
+        # Group 0: [3, 3, 4] (3, max(3,1), max(1,4))
+        # Group 1: [6, 6, 5] (6, max(6,2), max(2,5))
+        expected = np.array([3.0, 3.0, 4.0, 6.0, 6.0, 5.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_operations_2d(self):
+        """Test that all rolling operations work with 2D values."""
+        group_key = np.array([0, 0, 1, 1], dtype=np.int64)
+        values = np.array([
+            [1.0, 4.0],
+            [2.0, 3.0],
+            [3.0, 2.0],
+            [4.0, 1.0]
+        ], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        # Test rolling sum
+        result_sum = rolling_sum(group_key, values, ngroups, window)
+        expected_sum = np.array([
+            [1.0, 4.0],   # Group 0, first value
+            [3.0, 7.0],   # Group 0, 1+2, 4+3
+            [3.0, 2.0],   # Group 1, first value
+            [7.0, 3.0]    # Group 1, 3+4, 2+1
+        ])
+        np.testing.assert_array_almost_equal(result_sum, expected_sum)
+
+        # Test rolling mean
+        result_mean = rolling_mean(group_key, values, ngroups, window)
+        expected_mean = np.array([
+            [1.0, 4.0],     # Group 0, first value
+            [1.5, 3.5],     # Group 0, (1+2)/2, (4+3)/2
+            [3.0, 2.0],     # Group 1, first value
+            [3.5, 1.5]      # Group 1, (3+4)/2, (2+1)/2
+        ])
+        np.testing.assert_array_almost_equal(result_mean, expected_mean)
+
+    def test_rolling_operations_empty_groups(self):
+        """Test rolling operations with empty input."""
+        group_key = np.array([], dtype=np.int64)
+        values = np.array([], dtype=np.float64)
+        ngroups = 0
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = np.array([])
+        
+        np.testing.assert_array_equal(result, expected)
+
+    def test_rolling_operations_window_one(self):
+        """Test rolling operations with window size 1."""
+        group_key = np.array([0, 0, 1, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
+        ngroups = 2
+        window = 1
+
+        # With window=1, rolling sum should equal original values
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = values.copy()
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_rolling_operations_with_negative_group_keys(self):
+        """Test that negative group keys (null keys) are properly skipped."""
+        group_key = np.array([0, -1, 0, 1, 1], dtype=np.int64)  # -1 represents null
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        result = rolling_sum(group_key, values, ngroups, window)
+        
+        # Position 1 with key=-1 should be skipped (remain NaN)
+        expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0])
+        
+        np.testing.assert_array_almost_equal(result, expected)
+
+    @pytest.mark.parametrize("rolling_func", [rolling_sum, rolling_mean, rolling_min, rolling_max])
+    def test_rolling_operations_input_validation(self, rolling_func):
+        """Test input validation for rolling operations."""
+        group_key = np.array([0, 1, 0], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+        ngroups = 2
+        window = 2
+
+        # Test with 3D values (should raise error)
+        values_3d = np.array([[[1.0]]], dtype=np.float64)
+        with pytest.raises(ValueError, match="values must be 1D or 2D"):
+            rolling_func(group_key[:1], values_3d, ngroups, window)
+
+    def test_rolling_multithreading_2d(self):
+        """Test multi-threading functionality for 2D rolling operations."""
+        group_key = np.array([0, 0, 1, 1, 2, 2])
+        values = np.array([
+            [1.0, 10.0, 100.0, 1000.0],
+            [2.0, 20.0, 200.0, 2000.0],
+            [3.0, 30.0, 300.0, 3000.0],
+            [4.0, 40.0, 400.0, 4000.0],
+            [5.0, 50.0, 500.0, 5000.0],
+            [6.0, 60.0, 600.0, 6000.0]
+        ])
+        ngroups = 3
+        window = 2
+
+        # Test single-threaded vs multi-threaded results
+        result_single = rolling_sum(group_key, values, ngroups, window, n_threads=1)
+        result_multi = rolling_sum(group_key, values, ngroups, window, n_threads=4)
+        
+        # Results should be identical
+        np.testing.assert_array_almost_equal(result_single, result_multi)
+        
+        # Test with different rolling operations
+        for rolling_func in [rolling_mean, rolling_min, rolling_max]:
+            result_single = rolling_func(group_key, values, ngroups, window, n_threads=1)
+            result_multi = rolling_func(group_key, values, ngroups, window, n_threads=4)
+            np.testing.assert_array_almost_equal(result_single, result_multi)
