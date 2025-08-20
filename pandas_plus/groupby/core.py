@@ -899,8 +899,83 @@ class GroupBy:
             return pd.Series(value_list[0][ilocs], out_index)
         else:
             return pd.DataFrame(
-                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index
+                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index, copy=False
             )
+
+    def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return first n rows of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            Number of rows to select from the beginning of each group.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys. 
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            First n rows from each group.
+        """
+        ilocs = numba_funcs._find_first_or_last_n(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            n=n,
+            forward=True,
+        )
+        return self._get_row_selection(values=values, ilocs=ilocs, keep_input_index=keep_input_index)
+
+    def tail(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return last n rows of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            Number of rows to select from the end of each group.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Last n rows from each group.
+        """
+        ilocs = numba_funcs._find_first_or_last_n(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            n=n,
+            forward=False,
+        )
+        return self._get_row_selection(
+            values=values, ilocs=ilocs, keep_input_index=keep_input_index
+        )
+
+    def nth(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return nth row of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            The position to select from each group (0-indexed). Can also be negative to select from the end.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            The nth row from each group.
+        """
+        ilocs = numba_funcs._find_nth(group_key=self.group_ikey, ngroups=self.ngroups, n=n)
+        return self._get_row_selection(values, ilocs, keep_input_index)
 
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
