@@ -881,7 +881,7 @@ class TestCumulativeAggregation:
         ngroups = 2
         
         result = cumcount(group_key, ngroups)
-        expected = np.array([1, 2, 3, 1, 2, 3], dtype=np.int64)
+        expected = np.array([0, 1, 2, 0, 1, 2], dtype=np.int64)
         
         np.testing.assert_array_equal(result, expected)
     
@@ -893,7 +893,7 @@ class TestCumulativeAggregation:
         
         result = cumcount(group_key, ngroups, mask=mask)
         # Only count elements where mask is True
-        expected = np.array([1, 0, 2, 1, 2, 0], dtype=np.int64)
+        expected = np.array([0, 0, 1, 0, 1, 0], dtype=np.int64)
         
         np.testing.assert_array_equal(result, expected)
     
@@ -931,7 +931,7 @@ class TestCumulativeAggregation:
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
         
         result_count = cumcount(group_key, ngroups)
-        expected_count = np.array([1, 2, 0, 1, 2, 0], dtype=np.int64)
+        expected_count = np.array([0, 1, 0, 0, 1, 0], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
     
     def test_cumulative_operations_empty_groups(self):
@@ -945,7 +945,7 @@ class TestCumulativeAggregation:
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
         
         result_count = cumcount(group_key, ngroups)
-        expected_count = np.array([1, 2, 1, 2], dtype=np.int64)
+        expected_count = np.array([0, 1, 0, 1], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
     
     def test_cumulative_operations_single_group(self):
@@ -979,7 +979,7 @@ class TestCumulativeAggregation:
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
         
         result_count = cumcount(group_key, ngroups)
-        expected_count = np.array([1, 1, 2, 2, 3], dtype=np.int64)
+        expected_count = np.array([0, 0, 1, 1, 2], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
     
     @pytest.mark.parametrize("cumulative_func,operation", [
@@ -1006,7 +1006,7 @@ class TestCumulativeAggregation:
         
         # cumcount doesn't need values, should work fine
         result = cumcount(group_key, ngroups)
-        expected = np.array([1, 2, 1, 2], dtype=np.int64)
+        expected = np.array([0, 1, 0, 1], dtype=np.int64)
         np.testing.assert_array_equal(result, expected)
     
     def test_cumulative_operations_large_groups(self):
@@ -1046,8 +1046,8 @@ class TestCumulativeAggregation:
         our_cumsum = cumsum(group_key, values, ngroups)
         np.testing.assert_array_almost_equal(our_cumsum, pandas_cumsum)
         
-        # Compare cumcount (pandas cumcount starts from 0, ours starts from 1)
-        pandas_cumcount = df.groupby('group').cumcount().values + 1
+        # Compare cumcount (now both start from 0)
+        pandas_cumcount = df.groupby('group').cumcount().values
         our_cumcount = cumcount(group_key, ngroups)
         np.testing.assert_array_equal(our_cumcount, pandas_cumcount)
         

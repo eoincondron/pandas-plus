@@ -1300,8 +1300,8 @@ def _apply_cumulative(
     
     # Apply type-specific result handling
     if operation == "count":
-        # Replace NaN with 0 for count operations before casting to int
-        result = np.where(np.isnan(result), 0, result).astype(np.int64)
+        # Replace NaN with 0 for count operations, then subtract 1 to make 0-based like pandas
+        result = np.where(np.isnan(result), 0, result - 1).astype(np.int64)
     elif operation == "sum":
         # Type promotion rules for cumsum
         result = _apply_cumsum_type_promotion(result, original_dtype)
@@ -1418,7 +1418,7 @@ def cumcount(
     
     For each group defined by group_key, this function returns the running count
     of observations up to each position. The count resets at the beginning of
-    each new group and starts from 1.
+    each new group and starts from 0 (like pandas cumcount).
     
     Parameters
     ----------
@@ -1443,7 +1443,7 @@ def cumcount(
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> result = cumcount(group_key, ngroups=2)
     >>> print(result)
-    [1 2 3 1 2 3]
+    [0 1 2 0 1 2]
     
     >>> # With mask
     >>> mask = np.array([True, False, True, True, True, False])

@@ -977,6 +977,331 @@ class GroupBy:
         ilocs = numba_funcs._find_nth(group_key=self.group_ikey, ngroups=self.ngroups, n=n)
         return self._get_row_selection(values, ilocs, keep_input_index)
 
+    def _rolling_aggregate(
+        self,
+        func_name: str,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Shared implementation for rolling aggregation methods.
+        
+        Parameters
+        ----------
+        func_name : str
+            Name of the rolling function to call ('rolling_sum', 'rolling_mean', etc.)
+        values : ArrayCollection
+            Values to aggregate, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+            
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling aggregation results with same shape as input.
+        """
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        # Get the appropriate numba function
+        rolling_func = getattr(numba_funcs, func_name)
+        
+        results = [
+            rolling_func(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                window=window,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def rolling_sum(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling sum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling sum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling sum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_sum", values, window, mask)
+
+    @groupby_method
+    def rolling_mean(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling mean of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling mean for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling mean of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_mean", values, window, mask)
+
+    @groupby_method
+    def rolling_min(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling minimum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling minimum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling minimum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_min", values, window, mask)
+
+    @groupby_method
+    def rolling_max(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling maximum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling maximum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling maximum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_max", values, window, mask)
+
+    def _cumulative_aggregate(
+        self,
+        func_name: str,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Shared implementation for cumulative aggregation methods.
+        
+        Parameters
+        ----------
+        func_name : str
+            Name of the cumulative function to call ('cumsum', 'cummin', 'cummax')
+        values : ArrayCollection
+            Values to aggregate, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+            
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative aggregation results with same shape as input.
+        """
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        # Get the appropriate numba function
+        cumulative_func = getattr(numba_funcs, func_name)
+        
+        results = [
+            cumulative_func(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+                skip_na=skip_na,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def cumsum(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative sum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative sum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative sum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cumsum", values, mask, skip_na)
+
+    @groupby_method
+    def cumcount(
+        self,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate cumulative count in each group.
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series
+            Cumulative count for each group, same shape as input.
+        """
+        if mask is not None:
+            # Validate mask has same length as group_ikey
+            if len(mask) != len(self.group_ikey):
+                raise ValueError(f"Mask length {len(mask)} doesn't match group key length {len(self.group_ikey)}")
+        
+        result = numba_funcs.cumcount(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            mask=mask,
+        )
+        
+        # Create index - use _key_index if available, otherwise RangeIndex
+        index = self._key_index if self._key_index is not None else pd.RangeIndex(len(result))
+        return pd.Series(result, index=index, name="cumcount")
+
+    @groupby_method
+    def cummin(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative minimum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative minimum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative minimum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cummin", values, mask, skip_na)
+
+    @groupby_method
+    def cummax(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative maximum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative maximum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative maximum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cummax", values, mask, skip_na)
+
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
         """
