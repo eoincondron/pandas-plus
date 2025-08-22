@@ -630,11 +630,12 @@ def _rolling_sum_1d(
     values: np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
 ):
     """
     Core numba function for rolling sum on 1D values.
-    
+
     Parameters
     ----------
     group_key : np.ndarray
@@ -647,56 +648,63 @@ def _rolling_sum_1d(
         Rolling window size (constant across all groups)
     mask : Optional[np.ndarray]
         Boolean mask to filter elements
-        
+
     Returns
     -------
     np.ndarray
         Rolling sums for each position
     """
+    if min_periods is None:
+        min_periods = window
+
     out = np.full(len(values), np.nan)
     masked = mask is not None
-    
+
     # Track rolling sums and circular buffers for each group
     group_sums = np.zeros(ngroups)
     group_buffers = np.full((ngroups, window), np.nan)
-    group_positions = np.zeros(ngroups, dtype=nb.int64)
-    group_counts = np.zeros(ngroups, dtype=nb.int64)
-    
+    group_positions = np.zeros(ngroups, dtype=np.int64)
+    group_non_null = np.zeros(ngroups, dtype=np.int64)
+    group_n_seen = np.zeros(ngroups, dtype=np.int64)
+
     for i in range(len(group_key)):
         key = group_key[i]
-        
+
         if key < 0:  # Skip null keys
             continue
-            
+
         if masked and not mask[i]:
             continue
-            
+
         val = values[i]
-        
-        if np.isnan(val):  # Skip NaN values
-            continue
-            
+        val_is_null = is_null(val)
+
         # Get current position in circular buffer for this group
         pos = group_positions[key]
-        count = group_counts[key]
-        
+
         # If buffer is full, subtract the value that will be replaced
-        if count >= window:
+        group_full = group_n_seen[key] >= window
+        if group_full:
             old_val = group_buffers[key, pos]
-            if not np.isnan(old_val):
+            if not is_null(old_val):
                 group_sums[key] -= old_val
-        
+                group_non_null[key] -= 1
+
         # Add new value
+        if not val_is_null:
+            group_non_null[key] += 1
+            group_sums[key] += val
+
         group_buffers[key, pos] = val
-        group_sums[key] += val
-        
+
         # Update position and count
         group_positions[key] = (pos + 1) % window
-        if count < window:
-            group_counts[key] = count + 1
-            
-        out[i] = group_sums[key]
-    
+        if not group_full:
+            group_n_seen[key] += 1
+
+        if group_non_null[key] >= min_periods:
+            out[i] = group_sums[key]
+
     return out
 
 
@@ -706,15 +714,16 @@ def _apply_rolling_1d_to_2d(
     values: np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
     n_threads: int = 1,
 ):
     """
     General wrapper for applying a 1D rolling function to 2D values.
-    
+
     This function takes any 1D rolling function and applies it column-wise
     to 2D input values, with optional parallel processing.
-    
+
     Parameters
     ----------
     rolling_1d_func : callable
@@ -727,32 +736,45 @@ def _apply_rolling_1d_to_2d(
         Number of unique groups
     window : int
         Rolling window size (constant across all groups)
+    min_periods : Optional[int]
+        Minimum number of non-null observations in window required to have a value
     mask : Optional[np.ndarray]
         Boolean mask to filter elements
     n_threads : int
         Number of threads to use for parallel column processing
-        
+
     Returns
     -------
     np.ndarray
         Results for each position and column
     """
     n_rows, n_cols = values.shape
-    
+    kwargs = dict(
+        group_key=group_key,
+        ngroups=ngroups,
+        window=window,
+        min_periods=min_periods,
+        mask=mask,
+    )
+
     if n_threads == 1 or n_cols == 1:
         # Single-threaded: process columns sequentially
         result = np.empty((n_rows, n_cols))
         for col in range(n_cols):
-            result[:, col] = rolling_1d_func(group_key, values[:, col], ngroups, window, mask)
+            result[:, col] = rolling_1d_func(
+                **kwargs, values=values[:, col]
+            )
         return result
     else:
         # Multi-threaded: process columns in parallel
         def process_column(col_idx):
-            return rolling_1d_func(group_key, values[:, col_idx], ngroups, window, mask)
-        
+            return rolling_1d_func(**kwargs,values=values[:, col_idx])
+
         # Use parallel_map to process columns in parallel
-        column_results = parallel_map(process_column, [(i,) for i in range(n_cols)], max_workers=n_threads)
-        
+        column_results = parallel_map(
+            process_column, [(i,) for i in range(n_cols)], max_workers=n_threads
+        )
+
         # Combine results into 2D array
         result = np.column_stack(column_results)
         return result
@@ -764,15 +786,16 @@ def _apply_rolling(
     values: ArrayType1D | np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     General dispatcher for rolling operations that handles 1D vs 2D cases.
-    
+
     This function dispatches to the appropriate 1D function or uses the 2D wrapper
     based on the dimensionality of the input values.
-    
+
     Parameters
     ----------
     operation : str
@@ -785,48 +808,52 @@ def _apply_rolling(
         Number of unique groups in group_key
     window : int
         Size of the rolling window (constant across all groups)
+    min_periods : Optional[int]
+        Minimum number of non-null observations in window required to have a value
     mask : Optional[ArrayType1D]
         Boolean mask to filter elements
     n_threads : int, default 1
         Number of threads to use for parallel column processing (2D values only)
-        
+
     Returns
     -------
     np.ndarray
         Rolling aggregation results with same shape as values
-        
+
     Raises
     ------
     ValueError
         If operation is not supported or values are not 1D/2D
     """
+    kwargs = locals().copy()
+    del kwargs["operation"]
     # Map operation names to 1D functions
     rolling_1d_funcs = {
-        'sum': _rolling_sum_1d,
-        'mean': _rolling_mean_1d,
-        'min': _rolling_min_1d,
-        'max': _rolling_max_1d,
+        "sum": _rolling_sum_1d,
+        "mean": _rolling_mean_1d,
+        "min": _rolling_min_1d,
+        "max": _rolling_max_1d,
     }
-    
+
     if operation not in rolling_1d_funcs:
         raise ValueError(f"Unsupported rolling operation: {operation}")
-    
+
     # Convert inputs to appropriate numpy arrays
     group_key = np.asarray(group_key, dtype=np.int64)
     values = np.asarray(values, dtype=np.float64)
-    
+
     if mask is not None:
         mask = np.asarray(mask, dtype=bool)
-    
+
     rolling_1d_func = rolling_1d_funcs[operation]
-    
+
     if values.ndim == 1:
-        return rolling_1d_func(group_key, values, ngroups, window, mask)
+        del kwargs["n_threads"]
+        return rolling_1d_func(**kwargs)
     elif values.ndim == 2:
-        return _apply_rolling_1d_to_2d(rolling_1d_func, group_key, values, ngroups, window, mask, n_threads)
+        return _apply_rolling_1d_to_2d(rolling_1d_func,  **kwargs)
     else:
         raise ValueError(f"values must be 1D or 2D, got {values.ndim}D")
-
 
 
 @nb.njit(nogil=True, fastmath=False)
