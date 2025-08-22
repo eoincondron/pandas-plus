@@ -33,7 +33,7 @@ def _find_nth(
         rng = range(len(group_key))
     else:
         rng = range(len(group_key) - 1, -1, -1)
-        n = -n - 1 
+        n = -n - 1
 
     for i in rng:
         k = group_key[i]

@@ -506,10 +506,12 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int = None):
     is_integer = np_type.kind in "ui" and bins.dtype.kind in "ui"
 
     if precision is None and not is_integer:
+
         def get_decimals(x):
             x = str(x)
-            int, *decimals = str(x).split('.')
+            int, *decimals = str(x).split(".")
             return len(decimals)
+
         precision = max(map(get_decimals, bins))
 
     labels = [f" <= {bins[0]}"]
@@ -663,7 +665,9 @@ def bools_to_categorical(
     return out
 
 
-def factorize_arrow_arr(arr: Union[pa.Array, pl.Series, pd.Series]) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
+def factorize_arrow_arr(
+    arr: Union[pa.Array, pl.Series, pd.Series],
+) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
     """
     Method for factorizing the arrow arrays, including polars Series and Pandas Series backed by pyarrow
     """
@@ -675,9 +679,9 @@ def factorize_arrow_arr(arr: Union[pa.Array, pl.Series, pd.Series]) -> "tuple[np
     arr = arr.dictionary_encode()
     if isinstance(arr, pa.ChunkedArray):
         arr = arr.combine_chunks()
-    return arr.indices.to_numpy(zero_copy_only=False), pd.Index(arr.dictionary.to_numpy(
-        zero_copy_only=False
-    ))
+    return arr.indices.to_numpy(zero_copy_only=False), pd.Index(
+        arr.dictionary.to_numpy(zero_copy_only=False)
+    )
 
 
 def factorize_1d(
@@ -781,7 +785,9 @@ def factorize_1d(
     >>> uniques
     Index(['a', 'b', 'c'], dtype='object')
     """
-    if isinstance(values, (pl.Series, pa.Array)) or (hasattr(values, 'dtype') and isinstance(values.dtype, pd.ArrowDtype)):
+    if isinstance(values, (pl.Series, pa.Array)) or (
+        hasattr(values, "dtype") and isinstance(values.dtype, pd.ArrowDtype)
+    ):
         return factorize_arrow_arr(values)
     values = pd.Series(values)
     try:
