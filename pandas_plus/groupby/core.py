@@ -17,7 +17,6 @@ from ..util import (
     factorize_2d,
     convert_data_to_arr_list_and_keys,
     get_array_name,
-    _null_value_for_array_type,
     series_is_numeric,
 )
 
