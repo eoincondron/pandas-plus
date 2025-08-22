@@ -989,13 +989,19 @@ def _rolling_min_1d(
     mask: Optional[np.ndarray] = None,
 ):
     """
-    Core numba function for rolling min on 1D values.
+    Optimized core numba function for rolling min on 1D values.
+    
+    Uses position tracking to avoid scanning entire window on each update.
+    Only recomputes min when the current minimum falls out of the window.
     """
     out = np.full(len(values), np.nan)
     masked = mask is not None
     
-    # Track windows for each group
+    # Track windows and current min for each group
     group_windows = nb.typed.List()
+    group_min_vals = np.full(ngroups, np.inf)  # Current min value for each group
+    group_min_pos = np.full(ngroups, -1, dtype=np.int64)  # Position of current min in window
+    
     for _ in range(ngroups):
         group_windows.append(nb.typed.List.empty_list(nb.float64))
     
@@ -1016,16 +1022,31 @@ def _rolling_min_1d(
         window_vals = group_windows[key]
         window_vals.append(val)
         
+        # Check if window is full and needs trimming
         if len(window_vals) > window:
-            window_vals.pop(0)
+            removed_val = window_vals.pop(0)
+            # If we removed the current min, need to recompute
+            if group_min_pos[key] == 0:
+                # Recompute min from remaining window
+                window_min = np.inf
+                min_pos = -1
+                for pos, v in enumerate(window_vals):
+                    if v < window_min:
+                        window_min = v
+                        min_pos = pos
+                group_min_vals[key] = window_min
+                group_min_pos[key] = min_pos
+            else:
+                # Shift position back since we removed first element
+                group_min_pos[key] -= 1
+        
+        # Update current min if new value is better
+        current_min = group_min_vals[key]
+        if val <= current_min:
+            group_min_vals[key] = val
+            group_min_pos[key] = len(window_vals) - 1
             
-        # Calculate min of current window
-        window_min = np.inf
-        for v in window_vals:
-            if v < window_min:
-                window_min = v
-                
-        out[i] = window_min
+        out[i] = group_min_vals[key]
     
     return out
 
@@ -1041,13 +1062,19 @@ def _rolling_max_1d(
     mask: Optional[np.ndarray] = None,
 ):
     """
-    Core numba function for rolling max on 1D values.
+    Optimized core numba function for rolling max on 1D values.
+    
+    Uses position tracking to avoid scanning entire window on each update.
+    Only recomputes max when the current maximum falls out of the window.
     """
     out = np.full(len(values), np.nan)
     masked = mask is not None
     
-    # Track windows for each group
+    # Track windows and current max for each group
     group_windows = nb.typed.List()
+    group_max_vals = np.full(ngroups, -np.inf)  # Current max value for each group
+    group_max_pos = np.full(ngroups, -1, dtype=np.int64)  # Position of current max in window
+    
     for _ in range(ngroups):
         group_windows.append(nb.typed.List.empty_list(nb.float64))
     
@@ -1068,16 +1095,31 @@ def _rolling_max_1d(
         window_vals = group_windows[key]
         window_vals.append(val)
         
+        # Check if window is full and needs trimming
         if len(window_vals) > window:
-            window_vals.pop(0)
+            removed_val = window_vals.pop(0)
+            # If we removed the current max, need to recompute
+            if group_max_pos[key] == 0:
+                # Recompute max from remaining window
+                window_max = -np.inf
+                max_pos = -1
+                for pos, v in enumerate(window_vals):
+                    if v > window_max:
+                        window_max = v
+                        max_pos = pos
+                group_max_vals[key] = window_max
+                group_max_pos[key] = max_pos
+            else:
+                # Shift position back since we removed first element
+                group_max_pos[key] -= 1
+        
+        # Update current max if new value is better
+        current_max = group_max_vals[key]
+        if val >= current_max:
+            group_max_vals[key] = val
+            group_max_pos[key] = len(window_vals) - 1
             
-        # Calculate max of current window
-        window_max = -np.inf
-        for v in window_vals:
-            if v > window_max:
-                window_max = v
-                
-        out[i] = window_max
+        out[i] = group_max_vals[key]
     
     return out
 
