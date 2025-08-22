@@ -677,14 +677,12 @@ def _apply_rolling_1d_to_2d(
         # Single-threaded: process columns sequentially
         result = np.empty((n_rows, n_cols))
         for col in range(n_cols):
-            result[:, col] = rolling_1d_func(
-                **kwargs, values=values[:, col]
-            )
+            result[:, col] = rolling_1d_func(**kwargs, values=values[:, col])
         return result
     else:
         # Multi-threaded: process columns in parallel
         def process_column(col_idx):
-            return rolling_1d_func(**kwargs,values=values[:, col_idx])
+            return rolling_1d_func(**kwargs, values=values[:, col_idx])
 
         # Use parallel_map to process columns in parallel
         column_results = parallel_map(
@@ -1027,7 +1025,7 @@ def _rolling_max_min_1d(
     masked = mask is not None
 
     # Track rolling sums and circular buffers for each group
-    group_current = np.full(ngroups, 0.)
+    group_current = np.full(ngroups, 0.0)
     group_cur_positions = np.zeros(ngroups, dtype=np.int64)
     group_buffers = np.full((ngroups, window), np.nan)
     group_buffer_pos = np.zeros(ngroups, dtype=np.int64)
@@ -1207,10 +1205,10 @@ def _cumulative_reduce(
 ):
     """
     Core numba function for cumulative aggregations within groups.
-    
+
     This function iterates through data and maintains running aggregated values
     for each group, outputting the cumulative result at each position.
-    
+
     Parameters
     ----------
     group_key : np.ndarray
@@ -1225,7 +1223,7 @@ def _cumulative_reduce(
         Boolean mask to filter elements
     skip_na : bool, default True
         Whether to skip NaN values in aggregation
-        
+
     Returns
     -------
     np.ndarray
@@ -1233,28 +1231,28 @@ def _cumulative_reduce(
     """
     out = np.full(len(values), np.nan)
     masked = mask is not None
-    
+
     # Track current state for each group
     group_accumulators = np.full(ngroups, np.nan)
     group_seen = np.full(ngroups, False)
-    
+
     for i in range(len(group_key)):
         key = group_key[i]
-        
+
         if key < 0:
             continue
-            
+
         if masked and not mask[i]:
             continue
-            
+
         val = values[i]
-        
+
         if skip_na and is_null(val):
             # For skipna=True, pass through the current accumulator without updating
             if group_seen[key]:
                 out[i] = group_accumulators[key]
             continue
-        
+
         if group_seen[key]:
             # Update accumulator with new value
             group_accumulators[key] = reduce_func(group_accumulators[key], val)
@@ -1262,9 +1260,9 @@ def _cumulative_reduce(
             # First non-null value for this group
             group_accumulators[key] = val
             group_seen[key] = True
-            
+
         out[i] = group_accumulators[key]
-    
+
     return out
 
 
@@ -1278,7 +1276,7 @@ def _apply_cumulative(
 ):
     """
     General dispatcher for cumulative operations.
-    
+
     Parameters
     ----------
     operation : str
@@ -1293,12 +1291,12 @@ def _apply_cumulative(
         Boolean mask to filter elements
     skip_na : bool, default True
         Whether to skip NaN values in aggregation
-        
+
     Returns
     -------
     np.ndarray
         Cumulative aggregation results with appropriate dtype
-        
+
     Raises
     ------
     ValueError
@@ -1306,21 +1304,21 @@ def _apply_cumulative(
     """
     # Convert inputs to appropriate numpy arrays
     group_key = np.asarray(group_key, dtype=np.int64)
-    
+
     if mask is not None:
         mask = np.asarray(mask, dtype=bool)
-    
+
     # Map operation names to reduction functions
     cumulative_funcs = {
-        'sum': NumbaReductionOps.sum,
-        'count': NumbaReductionOps.count,
-        'min': NumbaReductionOps.min,
-        'max': NumbaReductionOps.max,
+        "sum": NumbaReductionOps.sum,
+        "count": NumbaReductionOps.count,
+        "min": NumbaReductionOps.min,
+        "max": NumbaReductionOps.max,
     }
-    
+
     if operation not in cumulative_funcs:
         raise ValueError(f"Unsupported cumulative operation: {operation}")
-    
+
     # For count, we create a dummy values array since count ignores the y argument
     if operation == "count":
         if values is None:
@@ -1335,13 +1333,13 @@ def _apply_cumulative(
             raise ValueError(f"values cannot be None for operation '{operation}'")
         values = np.asarray(values)
         original_dtype = values.dtype
-        
+
         # Convert to float for computation, preserving original dtype info
         values = values.astype(np.float64)
-    
+
     reduce_func = cumulative_funcs[operation]
     result = _cumulative_reduce(group_key, values, reduce_func, ngroups, mask, skip_na)
-    
+
     # Apply type-specific result handling
     if operation == "count":
         # Replace NaN with 0 for count operations, then subtract 1 to make 0-based like pandas
@@ -1352,14 +1350,16 @@ def _apply_cumulative(
     elif operation in ("min", "max"):
         # Preserve exact input type for min/max
         result = _preserve_exact_type(result, original_dtype)
-    
+
     return result
 
 
-def _apply_cumsum_type_promotion(result: np.ndarray, original_dtype: np.dtype) -> np.ndarray:
+def _apply_cumsum_type_promotion(
+    result: np.ndarray, original_dtype: np.dtype
+) -> np.ndarray:
     """
     Apply type promotion rules for cumsum.
-    
+
     Rules:
     - Signed integers and booleans → int64
     - Unsigned integers → uint64 (though less concerned about this)
@@ -1370,7 +1370,7 @@ def _apply_cumsum_type_promotion(result: np.ndarray, original_dtype: np.dtype) -
         return np.where(np.isnan(result), 0, result).astype(np.int64)
     elif np.issubdtype(original_dtype, np.signedinteger):
         # Handle NaN values before converting to int64
-        return np.where(np.isnan(result), 0, result).astype(np.int64) 
+        return np.where(np.isnan(result), 0, result).astype(np.int64)
     elif np.issubdtype(original_dtype, np.unsignedinteger):
         # Handle NaN values before converting to uint64
         return np.where(np.isnan(result), 0, result).astype(np.uint64)
@@ -1408,11 +1408,11 @@ def cumsum(
 ):
     """
     Calculate cumulative sum within each group.
-    
+
     For each group defined by group_key, this function returns the running sum
     of values up to each position. The cumulative sum resets at the beginning
     of each new group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1425,24 +1425,24 @@ def cumsum(
         Boolean mask to filter elements before aggregation
     skip_na : bool, default True
         Whether to skip NaN values in the sum calculation
-        
+
     Returns
     -------
     np.ndarray
         Cumulative sums with same shape as input values
-        
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import cumsum
-    >>> 
+    >>>
     >>> # Basic usage
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     >>> result = cumsum(group_key, values, ngroups=2)
     >>> print(result)
     [1. 3. 6. 4. 9. 15.]
-    
+
     >>> # With NaN values (skip_na=True)
     >>> values_with_nan = np.array([1.0, np.nan, 3.0, 4.0, 5.0, np.nan])
     >>> result = cumsum(group_key, values_with_nan, ngroups=2)
@@ -1459,11 +1459,11 @@ def cumcount(
 ):
     """
     Calculate cumulative count within each group.
-    
+
     For each group defined by group_key, this function returns the running count
     of observations up to each position. The count resets at the beginning of
     each new group and starts from 0 (like pandas cumcount).
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1472,23 +1472,23 @@ def cumcount(
         Number of unique groups in group_key
     mask : Optional[ArrayType1D]
         Boolean mask to filter elements before counting
-        
+
     Returns
     -------
     np.ndarray
         Cumulative counts with same shape as input, dtype int64
-        
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import cumcount
-    >>> 
+    >>>
     >>> # Basic usage
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> result = cumcount(group_key, ngroups=2)
     >>> print(result)
     [0 1 2 0 1 2]
-    
+
     >>> # With mask
     >>> mask = np.array([True, False, True, True, True, False])
     >>> result = cumcount(group_key, ngroups=2, mask=mask)
@@ -1507,11 +1507,11 @@ def cummin(
 ):
     """
     Calculate cumulative minimum within each group.
-    
+
     For each group defined by group_key, this function returns the running minimum
     of values up to each position. The cumulative minimum resets at the beginning
     of each new group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1524,17 +1524,17 @@ def cummin(
         Boolean mask to filter elements before aggregation
     skip_na : bool, default True
         Whether to skip NaN values in the minimum calculation
-        
+
     Returns
     -------
     np.ndarray
         Cumulative minimums with same shape as input values
-        
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import cummin
-    >>> 
+    >>>
     >>> # Basic usage
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> values = np.array([3.0, 1.0, 4.0, 2.0, 5.0, 1.0])
@@ -1554,11 +1554,11 @@ def cummax(
 ):
     """
     Calculate cumulative maximum within each group.
-    
+
     For each group defined by group_key, this function returns the running maximum
     of values up to each position. The cumulative maximum resets at the beginning
     of each new group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1571,17 +1571,17 @@ def cummax(
         Boolean mask to filter elements before aggregation
     skip_na : bool, default True
         Whether to skip NaN values in the maximum calculation
-        
+
     Returns
     -------
     np.ndarray
         Cumulative maximums with same shape as input values
-        
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import cummax
-    >>> 
+    >>>
     >>> # Basic usage
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> values = np.array([1.0, 3.0, 2.0, 4.0, 1.0, 5.0])
