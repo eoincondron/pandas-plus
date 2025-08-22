@@ -9,6 +9,7 @@ import numba as nb
 import numpy as np
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 from numba.core.extending import overload
 from pandas.core.sorting import get_group_index
 
@@ -20,7 +21,7 @@ MIN_INT = np.iinfo(np.int64).min
 MAX_INT = np.iinfo(np.int64).max
 
 ArrayType1D = Union[np.ndarray, pl.Series, pd.Series, pd.Index, pd.Categorical]
-ArrayType2D = Union[np.ndarray, pl.DataFrame, pd.DataFrame, pd.MultiIndex]
+ArrayType2D = Union[np.ndarray, pl.DataFrame, pl.LazyFrame, pd.DataFrame, pd.MultiIndex]
 
 
 def is_null(x):
@@ -398,12 +399,13 @@ class TempName(str): ...
 
 
 def series_is_numeric(series: pl.Series | pd.Series):
+    dtype = series.dtype
     if isinstance(series, pl.Series):
-        return series.dtype.is_numeric() or series.dtype.is_temporal()
+        return dtype.is_numeric() or dtype.is_temporal() or dtype == pl.Boolean
     else:
         return not (
             pd.api.types.is_object_dtype(series)
-            or isinstance(series.dtype, pd.CategoricalDtype)
+            or isinstance(dtype, pd.CategoricalDtype)
         )
 
 
@@ -447,14 +449,17 @@ def convert_data_to_arr_list_and_keys(
         if name is None:
             name = TempName(f"{temp_name_root}0")
         return [data], [name]
-    elif isinstance(data, (pl.DataFrame, pd.DataFrame)):
+    elif isinstance(data, (pl.DataFrame, pl.LazyFrame, pd.DataFrame)):
+        if isinstance(data, pl.LazyFrame):
+            # Collect LazyFrame to DataFrame first
+            data = data.collect()
         names = list(data.columns)
         return [data[key] for key in names], names
     else:
         raise TypeError(f"Input type {type(data)} not supported")
 
 
-def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int):
+def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int = None):
     """
     Create a categorical with pretty labels by cutting data into bins.
 
@@ -499,6 +504,13 @@ def pretty_cut(x: ArrayType1D, bins: ArrayType1D | List, precision: int):
     bins = np.sort(bins)
     np_type = np.asarray(x).dtype
     is_integer = np_type.kind in "ui" and bins.dtype.kind in "ui"
+
+    if precision is None and not is_integer:
+        def get_decimals(x):
+            x = str(x)
+            int, *decimals = str(x).split('.')
+            return len(decimals)
+        precision = max(map(get_decimals, bins))
 
     labels = [f" <= {bins[0]}"]
     for left, right in zip(bins, bins[1:]):
@@ -651,6 +663,23 @@ def bools_to_categorical(
     return out
 
 
+def factorize_arrow_arr(arr: Union[pa.Array, pl.Series, pd.Series]) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
+    """
+    Method for factorizing the arrow arrays, including polars Series and Pandas Series backed by pyarrow
+    """
+    if isinstance(arr, pl.Series):
+        arr = arr.to_arrow()
+    elif isinstance(arr, pd.Series):
+        arr = pa.Array.from_pandas(arr)
+
+    arr = arr.dictionary_encode()
+    if isinstance(arr, pa.ChunkedArray):
+        arr = arr.combine_chunks()
+    return arr.indices.to_numpy(zero_copy_only=False), pd.Index(arr.dictionary.to_numpy(
+        zero_copy_only=False
+    ))
+
+
 def factorize_1d(
     values,
     sort: "bool" = False,
@@ -752,6 +781,8 @@ def factorize_1d(
     >>> uniques
     Index(['a', 'b', 'c'], dtype='object')
     """
+    if isinstance(values, (pl.Series, pa.Array)) or (hasattr(values, 'dtype') and isinstance(values.dtype, pd.ArrowDtype)):
+        return factorize_arrow_arr(values)
     values = pd.Series(values)
     try:
         return np.asarray(values.cat.codes), values.cat.categories

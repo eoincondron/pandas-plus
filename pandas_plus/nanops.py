@@ -51,14 +51,16 @@ def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
     else:
         start, out = 0, initial_value
 
-    for j in range(start, len(arr)):
-        x = arr[j]
-        if is_null(x):
-            if skipna:
+    if skipna:
+        for j in range(start, len(arr)):
+            x = arr[j]
+            if is_null(x):
                 continue
-            else:
-                return x
         out = reduce_func(out, x)
+    else:
+        for j in range(start, len(arr)):
+            x = arr[j]
+            out = reduce_func(out, x)
 
     return out
 

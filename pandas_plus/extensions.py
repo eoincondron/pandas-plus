@@ -14,7 +14,7 @@ for method_name, alias, kwargs in [
     ("sort_values", "sv", {}),
     ("sort_values", "svd", {"ascending": False}),
     ("groupby", "gb", {"observed": True}),
-    ("drop_duplicates", "dd"),
+    ("drop_duplicates", "dd", {}),
 ]:
     for obj in (pd.Series, pd.DataFrame):
         try:
