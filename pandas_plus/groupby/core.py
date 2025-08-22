@@ -1303,6 +1303,156 @@ class GroupBy:
         return self._cumulative_aggregate("cummax", values, mask, skip_na)
 
     @groupby_method
+    def shift(
+        self,
+        values: ArrayCollection,
+        periods: int = 1,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Shift values within each group by a specified number of periods.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to shift, can be a single array/Series or a collection of them.
+        periods : int, default 1
+            Number of periods to shift. Currently only supports periods=1.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before shifting.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Shifted values for each group, same shape as input.
+            
+        Notes
+        -----
+        Currently only supports periods=1. Multi-period shifting will be 
+        added in a future version.
+
+        Examples
+        --------
+        >>> import pandas as pd
+        >>> from pandas_plus.groupby import GroupBy
+        >>> data = pd.DataFrame({
+        ...     'group': ['A', 'A', 'B', 'B'],
+        ...     'values': [1, 2, 3, 4]
+        ... })
+        >>> groupby = GroupBy(data['group'])
+        >>> groupby.shift(data['values'])
+        0    NaN
+        1    1.0
+        2    NaN
+        3    3.0
+        Name: values, dtype: float64
+        """
+        if periods != 1:
+            raise NotImplementedError(
+                f"periods={periods} not supported. Currently only periods=1 is supported."
+            )
+            
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        results = [
+            numba_funcs.group_shift(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def diff(
+        self,
+        values: ArrayCollection,
+        periods: int = 1,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate the difference between consecutive elements within each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate differences for, can be a single array/Series or a collection of them.
+        periods : int, default 1
+            Number of periods to use for calculating difference. Currently only supports periods=1.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating differences.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            First differences for each group, same shape as input.
+            
+        Notes
+        -----
+        Currently only supports periods=1. Multi-period differences will be 
+        added in a future version.
+
+        Examples
+        --------
+        >>> import pandas as pd
+        >>> from pandas_plus.groupby import GroupBy
+        >>> data = pd.DataFrame({
+        ...     'group': ['A', 'A', 'B', 'B'],
+        ...     'values': [1, 3, 2, 6]
+        ... })
+        >>> groupby = GroupBy(data['group'])
+        >>> groupby.diff(data['values'])
+        0    NaN
+        1    2.0
+        2    NaN
+        3    4.0
+        Name: values, dtype: float64
+        """
+        if periods != 1:
+            raise NotImplementedError(
+                f"periods={periods} not supported. Currently only periods=1 is supported."
+            )
+            
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        results = [
+            numba_funcs.group_diff(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
         """
         Generate subgroups of the groups defined by the GroupBy where the differences between consecutive members of a group are below a threshold.
