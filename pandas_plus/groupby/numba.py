@@ -624,90 +624,6 @@ def _group_diff_or_shift(
 # ===== Rolling Aggregation Methods =====
 
 
-@nb.njit(nogil=True, fastmath=False)
-def _rolling_sum_1d(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    """
-    Core numba function for rolling sum on 1D values.
-
-    Parameters
-    ----------
-    group_key : np.ndarray
-        1D array defining the groups
-    values : np.ndarray
-        1D array of values to aggregate
-    ngroups : int
-        Number of unique groups
-    window : int
-        Rolling window size (constant across all groups)
-    mask : Optional[np.ndarray]
-        Boolean mask to filter elements
-
-    Returns
-    -------
-    np.ndarray
-        Rolling sums for each position
-    """
-    if min_periods is None:
-        min_periods = window
-
-    out = np.full(len(values), np.nan)
-    masked = mask is not None
-
-    # Track rolling sums and circular buffers for each group
-    group_sums = np.zeros(ngroups)
-    group_buffers = np.full((ngroups, window), np.nan)
-    group_positions = np.zeros(ngroups, dtype=np.int64)
-    group_non_null = np.zeros(ngroups, dtype=np.int64)
-    group_n_seen = np.zeros(ngroups, dtype=np.int64)
-
-    for i in range(len(group_key)):
-        key = group_key[i]
-
-        if key < 0:  # Skip null keys
-            continue
-
-        if masked and not mask[i]:
-            continue
-
-        val = values[i]
-        val_is_null = is_null(val)
-
-        # Get current position in circular buffer for this group
-        pos = group_positions[key]
-
-        # If buffer is full, subtract the value that will be replaced
-        group_full = group_n_seen[key] >= window
-        if group_full:
-            old_val = group_buffers[key, pos]
-            if not is_null(old_val):
-                group_sums[key] -= old_val
-                group_non_null[key] -= 1
-
-        # Add new value
-        if not val_is_null:
-            group_non_null[key] += 1
-            group_sums[key] += val
-
-        group_buffers[key, pos] = val
-
-        # Update position and count
-        group_positions[key] = (pos + 1) % window
-        if not group_full:
-            group_n_seen[key] += 1
-
-        if group_non_null[key] >= min_periods:
-            out[i] = group_sums[key]
-
-    return out
-
-
 def _apply_rolling_1d_to_2d(
     rolling_1d_func: Callable,
     group_key: np.ndarray,
@@ -851,60 +767,122 @@ def _apply_rolling(
         del kwargs["n_threads"]
         return rolling_1d_func(**kwargs)
     elif values.ndim == 2:
-        return _apply_rolling_1d_to_2d(rolling_1d_func,  **kwargs)
+        return _apply_rolling_1d_to_2d(rolling_1d_func, **kwargs)
     else:
         raise ValueError(f"values must be 1D or 2D, got {values.ndim}D")
 
 
 @nb.njit(nogil=True, fastmath=False)
+def _rolling_sum_or_mean_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    min_periods: Optional[int] = None,
+    mask: Optional[np.ndarray] = None,
+    mean: bool = False,
+):
+    """
+    Core numba function for rolling sum on 1D values.
+
+    Parameters
+    ----------
+    group_key : np.ndarray
+        1D array defining the groups
+    values : np.ndarray
+        1D array of values to aggregate
+    ngroups : int
+        Number of unique groups
+    window : int
+        Rolling window size (constant across all groups)
+    mask : Optional[np.ndarray]
+        Boolean mask to filter elements
+
+    Returns
+    -------
+    np.ndarray
+        Rolling sums for each position
+    """
+    if min_periods is None:
+        min_periods = window
+
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+
+    # Track rolling sums and circular buffers for each group
+    group_sums = np.zeros(ngroups)
+    group_buffers = np.full((ngroups, window), np.nan)
+    group_positions = np.zeros(ngroups, dtype=np.int64)
+    group_non_null = np.zeros(ngroups, dtype=np.int64)
+    group_n_seen = np.zeros(ngroups, dtype=np.int64)
+
+    for i in range(len(group_key)):
+        key = group_key[i]
+
+        if key < 0:  # Skip null keys
+            continue
+
+        if masked and not mask[i]:
+            continue
+
+        val = values[i]
+        val_is_null = is_null(val)
+
+        # Get current position in circular buffer for this group
+        pos = group_positions[key]
+
+        # If buffer is full, subtract the value that will be replaced
+        group_full = group_n_seen[key] >= window
+        if group_full:
+            old_val = group_buffers[key, pos]
+            if not is_null(old_val):
+                group_sums[key] -= old_val
+                group_non_null[key] -= 1
+
+        # Add new value
+        if not val_is_null:
+            group_non_null[key] += 1
+            group_sums[key] += val
+
+        group_buffers[key, pos] = val
+
+        # Update position and count
+        group_positions[key] = (pos + 1) % window
+        if not group_full:
+            group_n_seen[key] += 1
+
+        if group_non_null[key] >= min_periods:
+            if mean:
+                out[i] = group_sums[key] / group_non_null[key]
+            else:
+                out[i] = group_sums[key]
+
+    return out
+
+
+def _rolling_sum_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    min_periods: Optional[int] = None,
+    mask: Optional[np.ndarray] = None,
+):
+    return _rolling_sum_or_mean_1d(
+        **locals(),
+        mean=False,
+    )
+
+
 def _rolling_mean_1d(
     group_key: np.ndarray,
     values: np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
 ):
-    """
-    Core numba function for rolling mean on 1D values.
-    """
-    out = np.full(len(values), np.nan)
-    masked = mask is not None
-    
-    # Track windows for each group
-    group_windows = nb.typed.List()
-    for _ in range(ngroups):
-        group_windows.append(nb.typed.List.empty_list(nb.float64))
-    
-    for i in range(len(group_key)):
-        key = group_key[i]
-        
-        if key < 0:
-            continue
-            
-        if masked and not mask[i]:
-            continue
-        
-        val = values[i]
-        
-        if is_null(val):
-            continue
-            
-        window_vals = group_windows[key]
-        window_vals.append(val)
-        
-        if len(window_vals) > window:
-            window_vals.pop(0)
-            
-        # Calculate mean of current window
-        window_sum = 0.0
-        for v in window_vals:
-            window_sum += v
-            
-        out[i] = window_sum / len(window_vals)
-    
-    return out
-
-
+    return _rolling_sum_or_mean_1d(**locals(), mean=True)
 
 
 def rolling_sum(
@@ -912,16 +890,17 @@ def rolling_sum(
     values: ArrayType1D | np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     Calculate rolling sum within each group using optimized circular buffer approach.
-    
+
     This function uses an optimized algorithm that maintains running sums and circular
-    buffers for O(1) add/remove operations, making it much faster than naive 
+    buffers for O(1) add/remove operations, making it much faster than naive
     implementations that recalculate sums for each window.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -936,31 +915,31 @@ def rolling_sum(
         Boolean mask to filter elements
     n_threads : int, default 1
         Number of threads to use for parallel column processing (2D values only)
-        
+
     Returns
     -------
     np.ndarray
         Rolling sums with same shape as values
-        
+
     Notes
     -----
     - Window size is constant across all groups
     - Uses circular buffer with O(1) operations for optimal performance
     - Handles NaN values by skipping them in calculations
     - Supports both 1D and 2D (multi-column) input values
-        
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import rolling_sum
-    >>> 
+    >>>
     >>> # 1D example
     >>> group_key = np.array([0, 0, 0, 1, 1, 1])
     >>> values = np.array([1, 2, 3, 4, 5, 6])
     >>> result = rolling_sum(group_key, values, ngroups=2, window=2)
     >>> print(result)
     [1. 3. 5. 4. 9. 11.]
-    >>> 
+    >>>
     >>> # 2D example (multiple columns)
     >>> values_2d = np.array([[1, 10], [2, 20], [3, 30], [4, 40], [5, 50], [6, 60]])
     >>> result_2d = rolling_sum(group_key, values_2d, ngroups=2, window=2)
@@ -972,7 +951,7 @@ def rolling_sum(
      [  9.  90.]
      [ 11. 110.]]
     """
-    return _apply_rolling("sum", group_key, values, ngroups, window, mask, n_threads)
+    return _apply_rolling("sum", **locals())
 
 
 def rolling_mean(
@@ -980,12 +959,13 @@ def rolling_mean(
     values: ArrayType1D | np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     Calculate rolling mean within each group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1000,13 +980,13 @@ def rolling_mean(
         Boolean mask to filter elements
     n_threads : int, default 1
         Number of threads to use for parallel column processing (2D values only)
-        
+
     Returns
     -------
     np.ndarray
         Rolling means with same shape as values
     """
-    return _apply_rolling("mean", group_key, values, ngroups, window, mask, n_threads)
+    return _apply_rolling("mean", **locals())
 
 
 @nb.njit(nogil=True, fastmath=False)
