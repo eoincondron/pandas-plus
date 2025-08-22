@@ -598,9 +598,11 @@ class TestRollingAggregation:
         window = 2
 
         result = rolling_sum(group_key, values, ngroups, window)
-        expected = np.array([1.0, 3.0, 5.0, 4.0, 9.0, 11.0])
-
+        expected = np.array([np.nan, 3.0, 5.0, np.nan, 9.0, 11.0])
         np.testing.assert_array_almost_equal(result, expected)
+
+        result = rolling_sum(group_key, values, ngroups, window, min_periods=1)
+        expected = np.array([1, 3.0, 5.0, 4, 9.0, 11.0])
 
     def test_rolling_sum_1d_window_larger_than_group(self):
         """Test rolling sum with window size larger than group size."""
@@ -609,9 +611,12 @@ class TestRollingAggregation:
         ngroups = 2
         window = 5  # Larger than group size
 
-        result = rolling_sum(group_key, values, ngroups, window)
+        result = rolling_sum(group_key, values, ngroups, window, min_periods=1)
         expected = np.array([1.0, 3.0, 3.0, 7.0])  # Should sum all available values
+        np.testing.assert_array_almost_equal(result, expected)
 
+        result = rolling_sum(group_key, values, ngroups, window)
+        expected = np.array([np.nan] * 4)  # Should sum all available values
         np.testing.assert_array_almost_equal(result, expected)
 
     def test_rolling_sum_2d_basic(self):
@@ -624,13 +629,13 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window)
+        result = rolling_sum(group_key, values, ngroups, window,)
         expected = np.array(
             [
-                [1.0, 10.0],  # First value in group 0
+                [np.nan, np.nan],  # First value in group 0
                 [3.0, 30.0],  # 1+2, 10+20 for group 0
                 [5.0, 50.0],  # 2+3, 20+30 for group 0
-                [4.0, 40.0],  # First value in group 1
+                [np.nan, np.nan],  # First value in group 1
                 [9.0, 90.0],  # 4+5, 40+50 for group 1
             ]
         )
@@ -645,7 +650,7 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window, mask)
+        result = rolling_sum(group_key, values, ngroups, window, min_periods=1, mask=mask)
 
         # Only positions where mask=True should have results
         # Group 0: positions 0,2 with values 1,3 -> [1, NaN, 4] (1, skip, 1+3)
@@ -661,12 +666,12 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window)
+        result = rolling_sum(group_key, values, ngroups, window, min_periods=1)
 
         # NaN values should be skipped
         # Group 0: [1, NaN, 4] (1, skip NaN, 1+3)
         # Group 1: [4, 9] (4, 4+5)
-        expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0])
+        expected = np.array([1.0, 1.0, 3.0, 4.0, 9.0])
 
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -677,10 +682,10 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_mean(group_key, values, ngroups, window)
+        result = rolling_mean(group_key, values, ngroups, window, min_periods=1)
         # Group 0: [2, 3, 5] (2/1, (2+4)/2, (4+6)/2)
         # Group 1: [8, 9, 11] (8/1, (8+10)/2, (10+12)/2)
-        expected = np.array([2.0, 3.0, 5.0, 8.0, 9.0, 11.0])
+        expected = np.array([2, 3.0, 5.0, 8.0, 9.0, 11.0])
 
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -691,7 +696,7 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_min(group_key, values, ngroups, window)
+        result = rolling_min(group_key, values, ngroups, window, min_periods=1)
         # Group 0: [3, 1, 1] (3, min(3,1), min(1,4))
         # Group 1: [6, 2, 2] (6, min(6,2), min(2,5))
         expected = np.array([3.0, 1.0, 1.0, 6.0, 2.0, 2.0])
@@ -705,7 +710,7 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_max(group_key, values, ngroups, window)
+        result = rolling_max(group_key, values, ngroups, window, min_periods=1)
         # Group 0: [3, 3, 4] (3, max(3,1), max(1,4))
         # Group 1: [6, 6, 5] (6, max(6,2), max(2,5))
         expected = np.array([3.0, 3.0, 4.0, 6.0, 6.0, 5.0])
@@ -722,7 +727,7 @@ class TestRollingAggregation:
         window = 2
 
         # Test rolling sum
-        result_sum = rolling_sum(group_key, values, ngroups, window)
+        result_sum = rolling_sum(group_key, values, ngroups, window, min_periods=1)
         expected_sum = np.array(
             [
                 [1.0, 4.0],  # Group 0, first value
@@ -734,7 +739,7 @@ class TestRollingAggregation:
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
 
         # Test rolling mean
-        result_mean = rolling_mean(group_key, values, ngroups, window)
+        result_mean = rolling_mean(group_key, values, ngroups, window, min_periods=1)
         expected_mean = np.array(
             [
                 [1.0, 4.0],  # Group 0, first value
@@ -777,7 +782,7 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window)
+        result = rolling_sum(group_key, values, ngroups, window, min_periods=1)
 
         # Position 1 with key=-1 should be skipped (remain NaN)
         expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0])
@@ -832,14 +837,14 @@ class TestRollingAggregation:
 
 
 @pytest.mark.parametrize("window", [1, 2, 5, 8])
-@pytest.mark.parametrize("method", ["mean", "sum"])
+@pytest.mark.parametrize("method", ["mean", "sum", "min", "max"])
 def test_numba_rolling_sum_1d_equivalence_wth_min_periods(window, method):
     """Test equivalence of numba_rolling_sum_1d with pandas rolling sum."""
-    arr = np.array([1, np.nan, 2, 3, np.nan, 4, 5, np.nan])
+    arr = np.array([1, np.nan, -2, 3, np.nan, 4, 5, np.nan])
     key = np.zeros(len(arr), dtype=int)
     arr = np.repeat(arr, 2)
     key = np.arange(len(arr)) % 2
-    func = dict(mean=rolling_mean, sum=rolling_sum)[method]
+    func = dict(mean=rolling_mean, sum=rolling_sum, min=rolling_min, max=rolling_max)[method]
 
     for min_periods in range(1, window + 1):
         x = func(key, arr, ngroups=1, window=window, min_periods=min_periods)
