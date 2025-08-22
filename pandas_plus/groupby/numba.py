@@ -989,150 +989,140 @@ def rolling_mean(
     return _apply_rolling("mean", **locals())
 
 
+@nb.njit(nogil=True)
+def min_or_max_and_position(arr, want_max: bool = True):
+    i = 0
+    while is_null(arr[i]) and i < len(arr) - 1:
+        i += 1
+    best = arr[i]
+    best_pos = i
+    for j, v in enumerate(arr[i + 1 :], i):
+        if want_max and v >= best or (not want_max and v <= best):
+            best = v
+            best_pos = j
+
+    return best, best_pos
+
+
 @nb.njit(nogil=True, fastmath=False)
+def _rolling_max_min_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    min_periods: Optional[int] = None,
+    mask: Optional[np.ndarray] = None,
+    want_max: bool = True,
+):
+    """
+    Optimized core numba function for rolling max/min on 1D values.
+
+    Uses position tracking to avoid scanning entire window on each update.
+    Only recomputes min when the current minimum falls out of the window.
+    """
+    if min_periods is None:
+        min_periods = window
+
+    out = np.full(len(values), np.nan)
+    masked = mask is not None
+
+    # Track rolling sums and circular buffers for each group
+    group_current = np.full(ngroups, 0.)
+    group_cur_positions = np.zeros(ngroups, dtype=np.int64)
+    group_buffers = np.full((ngroups, window), np.nan)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.int64)
+    group_non_null = np.zeros(ngroups, dtype=np.int64)
+    group_n_seen = np.zeros(ngroups, dtype=np.int64)
+
+    for i in range(len(group_key)):
+        key = group_key[i]
+
+        if key < 0:  # Skip null keys
+            continue
+
+        if masked and not mask[i]:
+            continue
+
+        val = values[i]
+        val_is_null = is_null(val)
+
+        # Get current position in circular buffer for this group
+        pos = group_buffer_pos[key]
+        cur_pos = group_cur_positions[key]
+        cur_best = group_current[key]
+
+        need_recalc = pos == cur_pos
+
+        n_seen = group_n_seen[key]
+        group_full = n_seen >= window
+        if group_full:
+            to_remove = group_buffers[key, pos]
+            if not is_null(to_remove):
+                group_non_null[key] -= 1
+
+        group_buffers[key, pos] = val
+        # Add new value
+        if not val_is_null:
+            if (
+                group_non_null[key] == 0
+                or (want_max and val >= cur_best)
+                or (not want_max and val <= cur_best)
+            ):
+                group_current[key] = val
+                group_cur_positions[key] = pos
+                need_recalc = False
+            group_non_null[key] += 1
+
+        if group_full and need_recalc:
+            # Recompute max from remaining window
+            window_vals = group_buffers[key]
+            window_best, cur_pos = min_or_max_and_position(window_vals, want_max)
+            group_current[key] = window_best
+            group_cur_positions[key] = cur_pos
+
+        # Update position and count
+        group_buffer_pos[key] = (pos + 1) % window
+        if not group_full:
+            group_n_seen[key] += 1
+
+        if group_non_null[key] >= min_periods:
+            out[i] = group_current[key]
+
+    return out
+
+
 def _rolling_min_1d(
     group_key: np.ndarray,
     values: np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
 ):
     """
     Optimized core numba function for rolling min on 1D values.
-    
+
     Uses position tracking to avoid scanning entire window on each update.
     Only recomputes min when the current minimum falls out of the window.
     """
-    out = np.full(len(values), np.nan)
-    masked = mask is not None
-    
-    # Track windows and current min for each group
-    group_windows = nb.typed.List()
-    group_min_vals = np.full(ngroups, np.inf)  # Current min value for each group
-    group_min_pos = np.full(ngroups, -1, dtype=np.int64)  # Position of current min in window
-    
-    for _ in range(ngroups):
-        group_windows.append(nb.typed.List.empty_list(nb.float64))
-    
-    for i in range(len(group_key)):
-        key = group_key[i]
-        
-        if key < 0:
-            continue
-            
-        if masked and not mask[i]:
-            continue
-            
-        val = values[i]
-        
-        if np.isnan(val):
-            continue
-            
-        window_vals = group_windows[key]
-        window_vals.append(val)
-        
-        # Check if window is full and needs trimming
-        if len(window_vals) > window:
-            removed_val = window_vals.pop(0)
-            # If we removed the current min, need to recompute
-            if group_min_pos[key] == 0:
-                # Recompute min from remaining window
-                window_min = np.inf
-                min_pos = -1
-                for pos, v in enumerate(window_vals):
-                    if v < window_min:
-                        window_min = v
-                        min_pos = pos
-                group_min_vals[key] = window_min
-                group_min_pos[key] = min_pos
-            else:
-                # Shift position back since we removed first element
-                group_min_pos[key] -= 1
-        
-        # Update current min if new value is better
-        current_min = group_min_vals[key]
-        if val <= current_min:
-            group_min_vals[key] = val
-            group_min_pos[key] = len(window_vals) - 1
-            
-        out[i] = group_min_vals[key]
-    
-    return out
+    return _rolling_max_min_1d(**locals(), want_max=False)
 
 
-
-
-@nb.njit(nogil=True, fastmath=False)
 def _rolling_max_1d(
     group_key: np.ndarray,
     values: np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
 ):
     """
     Optimized core numba function for rolling max on 1D values.
-    
+
     Uses position tracking to avoid scanning entire window on each update.
     Only recomputes max when the current maximum falls out of the window.
     """
-    out = np.full(len(values), np.nan)
-    masked = mask is not None
-    
-    # Track windows and current max for each group
-    group_windows = nb.typed.List()
-    group_max_vals = np.full(ngroups, -np.inf)  # Current max value for each group
-    group_max_pos = np.full(ngroups, -1, dtype=np.int64)  # Position of current max in window
-    
-    for _ in range(ngroups):
-        group_windows.append(nb.typed.List.empty_list(nb.float64))
-    
-    for i in range(len(group_key)):
-        key = group_key[i]
-        
-        if key < 0:
-            continue
-            
-        if masked and not mask[i]:
-            continue
-            
-        val = values[i]
-        
-        if np.isnan(val):
-            continue
-            
-        window_vals = group_windows[key]
-        window_vals.append(val)
-        
-        # Check if window is full and needs trimming
-        if len(window_vals) > window:
-            removed_val = window_vals.pop(0)
-            # If we removed the current max, need to recompute
-            if group_max_pos[key] == 0:
-                # Recompute max from remaining window
-                window_max = -np.inf
-                max_pos = -1
-                for pos, v in enumerate(window_vals):
-                    if v > window_max:
-                        window_max = v
-                        max_pos = pos
-                group_max_vals[key] = window_max
-                group_max_pos[key] = max_pos
-            else:
-                # Shift position back since we removed first element
-                group_max_pos[key] -= 1
-        
-        # Update current max if new value is better
-        current_max = group_max_vals[key]
-        if val >= current_max:
-            group_max_vals[key] = val
-            group_max_pos[key] = len(window_vals) - 1
-            
-        out[i] = group_max_vals[key]
-    
-    return out
-
-
+    return _rolling_max_min_1d(**locals(), want_max=True)
 
 
 def rolling_min(
@@ -1140,12 +1130,13 @@ def rolling_min(
     values: ArrayType1D | np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     Calculate rolling minimum within each group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1158,13 +1149,13 @@ def rolling_min(
         Size of the rolling window
     mask : Optional[ArrayType1D]
         Boolean mask to filter elements
-        
+
     Returns
     -------
     np.ndarray
         Rolling minimums with same shape as values
     """
-    return _apply_rolling("min", group_key, values, ngroups, window, mask, n_threads)
+    return _apply_rolling("min", **locals())
 
 
 def rolling_max(
@@ -1172,12 +1163,13 @@ def rolling_max(
     values: ArrayType1D | np.ndarray,
     ngroups: int,
     window: int,
+    min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
     """
     Calculate rolling maximum within each group.
-    
+
     Parameters
     ----------
     group_key : ArrayType1D
@@ -1190,18 +1182,19 @@ def rolling_max(
         Size of the rolling window
     mask : Optional[ArrayType1D]
         Boolean mask to filter elements
-        
+
     Returns
     -------
     np.ndarray
         Rolling maximums with same shape as values
     """
-    return _apply_rolling("max", group_key, values, ngroups, window, mask, n_threads)
+    return _apply_rolling("max", **locals())
 
 
 # ================================
 # Cumulative Aggregation Functions
 # ================================
+
 
 @nb.njit(nogil=True, fastmath=False)
 def _cumulative_reduce(
