@@ -535,6 +535,8 @@ def group_diff(
     null_value = _null_value_for_array_type(values)
     if values.dtype.kind in "iu":
         null_value = np.nan
+    elif values.dtype.kind == "M":
+        null_value = np.timedelta64("NaT", "ns")
     return _group_diff_or_shift(**locals(), shift=False)
 
 

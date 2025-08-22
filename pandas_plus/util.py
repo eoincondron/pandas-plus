@@ -112,16 +112,16 @@ def _null_value_for_array_type(arr: np.ndarray):
             else:
                 raise error
         case "f":
-            return np.array(np.nan, dtype=arr.dtype)
+            return np.nan
         case "u":
             if arr.dtype.itemsize >= 4:
                 return np.iinfo(arr.dtype).max
             else:
                 raise error
         case "m":
-            return np.array("NaT", dtype="m8[ns]")
+            return np.timedelta64("NaT")
         case "M":
-            return np.array("NaT", dtype="m8[ns]")
+            return np.datetime64("NaT")
         case _:
             raise error
 
