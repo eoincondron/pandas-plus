@@ -18,6 +18,7 @@ from ..util import (
     convert_data_to_arr_list_and_keys,
     get_array_name,
     _null_value_for_array_type,
+    series_is_numeric,
 )
 
 ArrayCollection = (
@@ -260,6 +261,17 @@ class GroupBy:
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
     ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
+        if isinstance(values, (pd.DataFrame)):
+            value_list, value_names = map(
+                list,
+                zip(
+                    *[
+                        (val, name)
+                        for val, name in zip(value_list, value_names)
+                        if series_is_numeric(val)
+                    ]
+                ),
+            )
 
         to_check = value_list + [self.group_ikey]
         if mask is not None:
@@ -579,11 +591,14 @@ class GroupBy:
     @groupby_method
     def density(
         self,
-        values: ArrayCollection,
+        values: Optional[ArrayCollection] = None,
         mask: Optional[ArrayType1D] = None,
         margins: bool = False,
     ):
-        totals = self.sum(values, mask, margins=True)
+        if values is None:
+            totals = self.size(mask, margins=True)
+        else:
+            totals = self.sum(values, mask, margins=True)
         if self.result_index.nlevels == 1:
             density = 100 * totals / totals.loc["All"]
             if margins:
@@ -778,3 +793,11 @@ def add_row_margin(data: pd.Series | pd.DataFrame, agg_func="sum"):
         keep.loc[summary.index] = True
 
     return out[keep]
+
+
+def value_counts(x, normalize: bool = False, mask: Optional[ArrayType1D] = None):
+    """ """
+    vc = GroupBy.size(x)
+    if normalize:
+        vc = vc / vc.sum()
+    return vc
