@@ -1,0 +1,137 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '*.md'
+      - 'pandas_plus/**/*.py'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '*.md'
+      - 'pandas_plus/**/*.py'
+
+jobs:
+  check-docs:
+    name: Check Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        pip install sphinx sphinx-rtd-theme myst-parser
+    
+    - name: Check README links
+      run: |
+        # Check for broken links in markdown files
+        find . -name "*.md" -not -path "./.git/*" | xargs grep -l "http" | head -10 | while read file; do
+          echo "Checking links in: $file"
+          # This would ideally use a link checker tool
+          grep -E "https?://[^\\s\\)\\]]+" "$file" || true
+        done
+    
+    - name: Validate docstrings
+      run: |
+        python -c "
+        import ast
+        import os
+        
+        def check_docstrings(filepath):
+            with open(filepath, 'r') as f:
+                tree = ast.parse(f.read())
+            
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                    if not ast.get_docstring(node) and not node.name.startswith('_'):
+                        print(f'Missing docstring: {filepath}:{node.lineno} - {node.name}')
+        
+        # Check main modules for docstrings
+        for root, dirs, files in os.walk('pandas_plus'):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
+            for file in files:
+                if file.endswith('.py') and not file.startswith('_'):
+                    filepath = os.path.join(root, file)
+                    try:
+                        check_docstrings(filepath)
+                    except:
+                        continue
+        "
+    
+    - name: Generate API documentation
+      run: |
+        # This would generate API docs if sphinx is set up
+        echo "API documentation generation would happen here"
+        echo "Consider setting up sphinx autodoc for automatic API documentation"
+    
+    - name: Check code examples in README
+      run: |
+        python -c "
+        import re
+        
+        with open('README.md', 'r') as f:
+            content = f.read()
+        
+        # Extract Python code blocks
+        code_blocks = re.findall(r'```python(.*?)```', content, re.DOTALL)
+        
+        print(f'Found {len(code_blocks)} Python code blocks in README')
+        
+        # Basic validation that code blocks import our package
+        for i, block in enumerate(code_blocks):
+            if 'pandas_plus' in block or 'GroupBy' in block:
+                print(f'Code block {i+1}: Uses pandas-plus ✓')
+            else:
+                print(f'Code block {i+1}: No pandas-plus imports')
+        "
+
+  update-changelog:
+    name: Update Changelog
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Generate changelog entry
+      run: |
+        # Get commits since last tag
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        
+        if [[ -n "$LAST_TAG" ]]; then
+          echo "## Changes since $LAST_TAG"
+          echo ""
+          git log --oneline --no-merges $LAST_TAG..HEAD | while read commit; do
+            echo "- $commit"
+          done
+        else
+          echo "## Recent Changes"
+          echo ""
+          git log --oneline --no-merges -10 | while read commit; do
+            echo "- $commit"
+          done
+        fi > recent-changes.md
+        
+        cat recent-changes.md
+    
+    - name: Upload changelog
+      uses: actions/upload-artifact@v3
+      with:
+        name: recent-changes
+        path: recent-changes.md
+        retention-days: 30

@@ -1,0 +1,199 @@
+name: Release & Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release'
+        required: true
+        default: 'v0.1.0'
+      publish_pypi:
+        description: 'Publish to PyPI'
+        type: boolean
+        default: true
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Get version information
+      id: get_version
+      run: |
+        if [[ "${{ github.event_name }}" == "release" ]]; then
+          VERSION="${{ github.event.release.tag_name }}"
+          IS_PRERELEASE="${{ github.event.release.prerelease }}"
+        else
+          VERSION="${{ github.event.inputs.version }}"
+          IS_PRERELEASE="false"
+        fi
+        
+        # Remove 'v' prefix if present
+        VERSION=${VERSION#v}
+        
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "is_prerelease=${IS_PRERELEASE}" >> $GITHUB_OUTPUT
+        
+        echo "Release version: ${VERSION}"
+        echo "Is prerelease: ${IS_PRERELEASE}"
+    
+    - name: Validate version format
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-zA-Z0-9]*)$ ]]; then
+          echo "Invalid version format: $VERSION"
+          exit 1
+        fi
+        echo "Version format is valid: $VERSION"
+
+  build-and-test:
+    name: Build and Test Release
+    runs-on: ubuntu-latest
+    needs: validate-release
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Update version in pyproject.toml
+      run: |
+        VERSION="${{ needs.validate-release.outputs.version }}"
+        sed -i "s/version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+        echo "Updated version to ${VERSION}"
+        grep "version =" pyproject.toml
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine pytest pytest-cov
+        pip install -e .[dev,test]
+    
+    - name: Run full test suite
+      run: |
+        pytest tests/ -v --cov=pandas_plus --cov-report=term-missing
+        
+    - name: Build distributions
+      run: |
+        python -m build
+        ls -la dist/
+    
+    - name: Verify distributions
+      run: |
+        twine check dist/*
+        
+    - name: Test installation from wheel
+      run: |
+        pip uninstall pandas-plus -y || true
+        pip install dist/*.whl
+        python -c "
+        from pandas_plus.groupby import GroupBy
+        import pandas as pd
+        import numpy as np
+        gb = GroupBy(pd.Series([0,0,1,1]))
+        result = gb.sum(pd.Series([1,2,3,4]))
+        print('Installation test passed:', result.values)
+        "
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist-${{ needs.validate-release.outputs.version }}
+        path: dist/
+        retention-days: 30
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-and-test]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_pypi == 'true')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pandas-plus
+    
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: dist-${{ needs.validate-release.outputs.version }}
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        user: __token__
+        password: ${{ secrets.PYPI_API_TOKEN }}
+        verbose: true
+
+  update-conda-forge:
+    name: Update conda-forge recipe
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-pypi]
+    if: needs.validate-release.outputs.is_prerelease == 'false'
+    
+    steps:
+    - name: Checkout feedstock repo
+      run: |
+        echo "Step 1: Wait for PyPI release to propagate (typically 5-10 minutes)"
+        echo "Step 2: Fork https://github.com/conda-forge/pandas-plus-feedstock"
+        echo "Step 3: Update recipe/meta.yaml with new version and dependencies"
+        echo "Step 4: Update recipe/meta.yaml sha256 hash from PyPI"
+        echo "Step 5: Submit PR to conda-forge/pandas-plus-feedstock"
+        echo ""
+        echo "Alternatively, conda-forge bot may automatically detect the new PyPI release"
+        echo "and create a PR within 24 hours. Monitor:"
+        echo "https://github.com/conda-forge/pandas-plus-feedstock/pulls"
+        echo ""
+        echo "Version released: ${{ needs.validate-release.outputs.version }}"
+        echo "PyPI URL: https://pypi.org/project/pandas-plus/${{ needs.validate-release.outputs.version }}/"
+
+  post-release:
+    name: Post-release tasks
+    runs-on: ubuntu-latest
+    needs: [validate-release, publish-pypi]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Update development version
+      if: needs.validate-release.outputs.is_prerelease == 'false'
+      run: |
+        VERSION="${{ needs.validate-release.outputs.version }}"
+        
+        # Parse version and increment patch for next development version
+        IFS='.' read -ra VERSION_PARTS <<< "$VERSION"
+        MAJOR=${VERSION_PARTS[0]}
+        MINOR=${VERSION_PARTS[1]}
+        PATCH=${VERSION_PARTS[2]}
+        
+        # Increment patch version for development
+        NEXT_PATCH=$((PATCH + 1))
+        DEV_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}.dev0"
+        
+        echo "Setting development version to: ${DEV_VERSION}"
+        
+        # This would be used to update version for next development cycle
+        # sed -i "s/version = \".*\"/version = \"${DEV_VERSION}\"/" pyproject.toml
+        
+        echo "Next development version would be: ${DEV_VERSION}"
+        echo "Consider updating pyproject.toml manually for development work"

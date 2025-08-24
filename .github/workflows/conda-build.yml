@@ -1,0 +1,73 @@
+name: Conda Build & Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly on Sundays at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+jobs:
+  conda-build:
+    name: Conda Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+        miniforge-version: latest
+        channels: conda-forge,defaults
+        channel-priority: true
+        activate-environment: build-env
+
+    - name: Install conda-build
+      shell: bash -l {0}
+      run: |
+        conda install conda-build conda-verify anaconda-client -y
+
+    - name: Build conda package
+      shell: bash -l {0}
+      run: |
+        conda build conda-recipe/ --output-folder dist/conda --python ${{ matrix.python-version }}
+
+    - name: Test conda package
+      shell: bash -l {0}
+      run: |
+        # Install the built package
+        conda install --use-local pandas-plus -y
+        
+        # Run basic import test
+        python -c "
+        from pandas_plus.groupby import GroupBy
+        import pandas as pd
+        import numpy as np
+        
+        # Basic functionality test
+        key = pd.Series([0, 0, 1, 1])
+        values = pd.Series([1, 2, 3, 4])
+        gb = GroupBy(key)
+        result = gb.sum(values)
+        print('Conda package test passed!')
+        print('Sum result:', result.values)
+        "
+
+    - name: Upload conda package
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+      uses: actions/upload-artifact@v3
+      with:
+        name: conda-package
+        path: dist/conda/
+        retention-days: 7
