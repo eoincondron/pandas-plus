@@ -112,7 +112,7 @@ def _null_value_for_array_type(arr: np.ndarray):
             else:
                 raise error
         case "f":
-            return np.nan
+            return np.array([np.nan], dtype=arr.dtype)[0]
         case "u":
             if arr.dtype.itemsize >= 4:
                 return np.iinfo(arr.dtype).max
