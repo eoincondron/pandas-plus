@@ -873,7 +873,7 @@ class GroupBy:
 
         return density
 
-    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False):
+    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False, n: Optional[int] = None):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         common_index = _validate_input_lengths_and_indexes(value_list)
         keep = ilocs > -1
@@ -884,14 +884,19 @@ class GroupBy:
                 common_index = pd.RangeIndex(len(value_list[0]))
             out_index = common_index[ilocs]
         else:
-            new_codes = [np.repeat(c, n)[keep] for c in self.result_index.codes]
-            new_codes.append(np.tile(np.arange(n), self.ngroups)[keep])
-            new_levels = [*self.result_index.levels, np.arange(n)]
-            out_index = pd.MultiIndex(
-                codes=new_codes,
-                levels=new_levels,
-                names=[*self.result_index.names, None],
-            )[keep]
+            if n is None:
+                # For cases where we don't have n, use a simple range index
+                n_selected = len(ilocs)
+                out_index = pd.RangeIndex(n_selected)
+            else:
+                new_codes = [np.repeat(c, n)[keep] for c in self.result_index.codes]
+                new_codes.append(np.tile(np.arange(n), self.ngroups)[keep])
+                new_levels = [*self.result_index.levels, np.arange(n)]
+                out_index = pd.MultiIndex(
+                    codes=new_codes,
+                    levels=new_levels,
+                    names=[*self.result_index.names, None],
+                )[keep]
 
         return_1d = isinstance(values, ArrayType1D)
         if return_1d:
@@ -925,7 +930,7 @@ class GroupBy:
             n=n,
             forward=True,
         )
-        return self._get_row_selection(values=values, ilocs=ilocs, keep_input_index=keep_input_index)
+        return self._get_row_selection(values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n)
 
     def tail(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
         """
@@ -952,7 +957,7 @@ class GroupBy:
             forward=False,
         )
         return self._get_row_selection(
-            values=values, ilocs=ilocs, keep_input_index=keep_input_index
+            values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n
         )
 
     def nth(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
@@ -974,7 +979,7 @@ class GroupBy:
             The nth row from each group.
         """
         ilocs = numba_funcs._find_nth(group_key=self.group_ikey, ngroups=self.ngroups, n=n)
-        return self._get_row_selection(values, ilocs, keep_input_index)
+        return self._get_row_selection(values, ilocs, keep_input_index, n=n)
 
     def _rolling_aggregate(
         self,
@@ -1465,7 +1470,7 @@ class GroupBy:
         max_diff: float | int
             The threshold distance for forming a new sub-group
         """
-        return group_nearby_members(
+        return numba_funcs.group_nearby_members(
             group_key=self.group_ikey,
             values=values,
             max_diff=max_diff,
@@ -1479,7 +1484,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: Literal[True, False, "row", "column"]
+    margins: Literal[True, False, "row", "column"] = False
 ):
     """
     Perform a cross-tabulation of the group keys and values.
@@ -1527,10 +1532,12 @@ def pivot_table(
             mask=mask,
             margins=margins,
         )
+    table = out.unstack(level=levels[n0:])
+    if table.index.nlevels == 1:
+        column_order = out.index.levels[1].intersection(table.columns)
+        table = table[column_order]
 
-    out = out.unstack(level=levels[n0:]).sort_index(axis=1)
-
-    return out
+    return table
 
 
 def crosstab(
