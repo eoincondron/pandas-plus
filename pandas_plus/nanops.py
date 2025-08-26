@@ -56,7 +56,7 @@ def _nb_reduce(reduce_func, arr, skipna: bool = True, initial_value=None):
             x = arr[j]
             if is_null(x):
                 continue
-        out = reduce_func(out, x)
+            out = reduce_func(out, x)
     else:
         for j in range(start, len(arr)):
             x = arr[j]
@@ -144,7 +144,7 @@ def reduce_1d(reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 
 
 
 def reduce_2d(
-    reduce_func_name: str, arr, skipna: bool = True, n_threads: int = None, axis=0
+    reduce_func_name: str, arr, skipna: bool = True, n_threads: int = 1, axis=0
 ):
     """
     Apply a reduction function to a 2D array along a specified axis.

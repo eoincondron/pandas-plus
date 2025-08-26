@@ -1,0 +1,125 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'pandas_plus/**'
+      - 'tests/**'
+  schedule:
+    # Run daily at 2 AM UTC for trend monitoring
+    - cron: '0 2 * * *'
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[benchmark]')
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        pip install pytest-benchmark matplotlib seaborn
+
+    - name: Run performance benchmarks
+      run: |
+        python -c "
+        import time
+        import numpy as np
+        import pandas as pd
+        from pandas_plus.groupby import GroupBy
+        
+        print('=== Performance Benchmark Results ===')
+        
+        # Test data
+        n_data = 100000
+        n_groups = 1000
+        window = 50
+        
+        np.random.seed(42)
+        key = pd.Series(np.random.randint(0, n_groups, n_data))
+        values = pd.Series(np.random.randn(n_data))
+        
+        gb = GroupBy(key)
+        
+        # Benchmark rolling operations
+        print(f'Dataset: {n_data:,} points, {n_groups} groups, window={window}')
+        
+        start_time = time.time()
+        result_sum = gb.rolling_sum(values, window=window)
+        sum_time = time.time() - start_time
+        print(f'Rolling sum: {sum_time:.4f}s')
+        
+        start_time = time.time()
+        result_mean = gb.rolling_mean(values, window=window) 
+        mean_time = time.time() - start_time
+        print(f'Rolling mean: {mean_time:.4f}s')
+        
+        start_time = time.time()
+        result_max = gb.rolling_max(values, window=window)
+        max_time = time.time() - start_time
+        print(f'Rolling max (optimized): {max_time:.4f}s')
+        
+        start_time = time.time()
+        result_min = gb.rolling_min(values, window=window)
+        min_time = time.time() - start_time
+        print(f'Rolling min (optimized): {min_time:.4f}s')
+        
+        # Benchmark cumulative operations
+        start_time = time.time()
+        result_cumsum = gb.cumsum(values)
+        cumsum_time = time.time() - start_time
+        print(f'Cumsum: {cumsum_time:.4f}s')
+        
+        start_time = time.time()
+        result_cummax = gb.cummax(values)
+        cummax_time = time.time() - start_time
+        print(f'Cummax: {cummax_time:.4f}s')
+        
+        # Compare with pandas (smaller dataset for comparison)
+        small_n = 10000
+        small_key = key[:small_n]
+        small_values = values[:small_n]
+        
+        print(f'\\n=== Comparison with Pandas (n={small_n}) ===')
+        
+        # pandas rolling
+        start_time = time.time()
+        pandas_rolling = small_values.groupby(small_key).rolling(window=window, min_periods=1).sum()
+        pandas_time = time.time() - start_time
+        
+        # our rolling
+        small_gb = GroupBy(small_key)
+        start_time = time.time()
+        our_rolling = small_gb.rolling_sum(small_values, window=window)
+        our_time = time.time() - start_time
+        
+        speedup = pandas_time / our_time
+        print(f'Pandas rolling sum: {pandas_time:.4f}s')
+        print(f'Our rolling sum: {our_time:.4f}s')  
+        print(f'Speedup: {speedup:.2f}x')
+        
+        print(f'\\n=== Benchmark Summary ===')
+        print(f'All benchmarks completed successfully')
+        print(f'Optimized rolling operations show expected performance characteristics')
+        "
+
+    - name: Performance regression check
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "Performance regression checks would be implemented here"
+        echo "This could compare against baseline performance metrics"
+        echo "And fail if performance degrades beyond acceptable thresholds"

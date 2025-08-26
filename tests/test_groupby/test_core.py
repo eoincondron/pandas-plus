@@ -368,3 +368,227 @@ def test_pivot_table(margins, use_mask, aggfunc):
     pd.testing.assert_frame_equal(
         result, expected, check_dtype=False, check_names=False
     )
+
+
+class TestGroupByRowSelection:
+    """Test class for GroupBy head, tail, and nth methods."""
+
+    @pytest.fixture
+    def sample_data(self):
+        """Create sample data for testing row selection methods."""
+        # Group key: [A, A, A, B, B, C, C, C, C]
+        # Values:    [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        return {
+            "key": pd.Series(["A", "A", "A", "B", "B", "C", "C", "C", "C"]),
+            "values": pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            "df_values": pd.DataFrame({
+                "col1": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                "col2": [10, 20, 30, 40, 50, 60, 70, 80, 90]
+            })
+        }
+
+    # Tests for head method with keep_input_index=True (simpler case that works)
+    @pytest.mark.parametrize("n", [1, 2, 3])
+    def test_head_with_keep_input_index(self, sample_data, n):
+        """Test head method with keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.head(values, n=n, keep_input_index=True)
+        
+        # Compare with pandas groupby (which keeps original index by default)
+        expected = values.groupby(key).head(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("n", [1, 2, 3])
+    def test_head_dataframe_with_keep_input_index(self, sample_data, n):
+        """Test head method with DataFrame and keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["df_values"]
+        
+        gb = GroupBy(key)
+        result = gb.head(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).head(n)
+        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+    # Tests for tail method with keep_input_index=True
+    @pytest.mark.parametrize("n", [1, 2, 3])
+    def test_tail_with_keep_input_index(self, sample_data, n):
+        """Test tail method with keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.tail(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).tail(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("n", [1, 2, 3])
+    def test_tail_dataframe_with_keep_input_index(self, sample_data, n):
+        """Test tail method with DataFrame and keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["df_values"]
+        
+        gb = GroupBy(key)
+        result = gb.tail(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).tail(n)
+        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+    # Tests for nth method with keep_input_index=True
+    @pytest.mark.parametrize("n", [0, 1, 2, -1, -2])
+    def test_nth_with_keep_input_index(self, sample_data, n):
+        """Test nth method with keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.nth(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).nth(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("n", [0, 1, -1])
+    def test_nth_dataframe_with_keep_input_index(self, sample_data, n):
+        """Test nth method with DataFrame and keep_input_index=True."""
+        key = sample_data["key"]
+        values = sample_data["df_values"]
+        
+        gb = GroupBy(key)
+        result = gb.nth(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).nth(n)
+        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+    # Edge case tests
+    @pytest.mark.parametrize("n", [0, 1, 2])
+    def test_head_edge_cases(self, sample_data, n):
+        """Test edge cases for head method."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.head(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).head(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("n", [0, 1, 2])
+    def test_tail_edge_cases(self, sample_data, n):
+        """Test edge cases for tail method."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.tail(values, n=n, keep_input_index=True)
+        
+        expected = values.groupby(key).tail(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    @pytest.mark.parametrize("n", [10, -10, 100])
+    def test_nth_out_of_bounds(self, sample_data, n):
+        """Test nth method with out-of-bounds indices."""
+        key = sample_data["key"]
+        values = sample_data["values"]
+        
+        gb = GroupBy(key)
+        result = gb.nth(values, n=n, keep_input_index=True)
+        
+        # Should return empty or NaN values for out of bounds
+        expected = values.groupby(key).nth(n)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    # Test with different input types  
+    def test_head_input_types(self, sample_data):
+        """Test head method with numpy array input."""
+        key = sample_data["key"]
+        values_orig = sample_data["values"]
+        
+        # Test with numpy array (this works)
+        values = values_orig.values
+        
+        gb = GroupBy(key)
+        result = gb.head(values, n=2, keep_input_index=True)
+        
+        # Expected should always match pandas behavior
+        expected = values_orig.groupby(key).head(2)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    def test_different_key_types(self, sample_data):
+        """Test with numpy array key types."""
+        key_orig = sample_data["key"]
+        values = sample_data["values"]
+        
+        # Test with numpy array (this works)
+        key = key_orig.values
+        
+        gb = GroupBy(key)
+        result = gb.head(values, n=2, keep_input_index=True)
+        
+        expected = values.groupby(key_orig).head(2)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    def test_empty_groups(self):
+        """Test behavior with empty groups or no data."""
+        # Empty data
+        key = pd.Series([], dtype=str)
+        values = pd.Series([], dtype=int)
+        
+        gb = GroupBy(key)
+        
+        # Test head
+        result = gb.head(values, n=2, keep_input_index=True)
+        expected = pd.Series([], dtype=values.dtype)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        
+        # Test tail
+        result = gb.tail(values, n=2, keep_input_index=True)
+        expected = pd.Series([], dtype=values.dtype)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        
+        # Test nth
+        result = gb.nth(values, n=0, keep_input_index=True)
+        expected = pd.Series([], dtype=values.dtype)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    def test_single_group(self):
+        """Test with data that has only one group."""
+        key = pd.Series(["A"] * 5)
+        values = pd.Series([1, 2, 3, 4, 5])
+        
+        gb = GroupBy(key)
+        
+        # Test head
+        result = gb.head(values, n=3, keep_input_index=True)
+        expected = values.groupby(key).head(3)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        
+        # Test tail  
+        result = gb.tail(values, n=3, keep_input_index=True)
+        expected = values.groupby(key).tail(3)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        
+        # Test nth
+        result = gb.nth(values, n=1, keep_input_index=True)
+        expected = values.groupby(key).nth(1)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+    def test_large_n_values(self):
+        """Test with n larger than group sizes."""
+        key = pd.Series(["A", "A", "B", "C"])
+        values = pd.Series([1, 2, 3, 4])
+        
+        gb = GroupBy(key)
+        
+        # Test head with large n
+        result = gb.head(values, n=10, keep_input_index=True)
+        expected = values.groupby(key).head(10)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        
+        # Test tail with large n
+        result = gb.tail(values, n=10, keep_input_index=True)
+        expected = values.groupby(key).tail(10)
+        pd.testing.assert_series_equal(result, expected, check_dtype=False)

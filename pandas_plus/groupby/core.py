@@ -17,7 +17,6 @@ from ..util import (
     factorize_2d,
     convert_data_to_arr_list_and_keys,
     get_array_name,
-    _null_value_for_array_type,
     series_is_numeric,
 )
 
@@ -874,7 +873,7 @@ class GroupBy:
 
         return density
 
-    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False):
+    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False, n: Optional[int] = None):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         common_index = _validate_input_lengths_and_indexes(value_list)
         keep = ilocs > -1
@@ -885,22 +884,577 @@ class GroupBy:
                 common_index = pd.RangeIndex(len(value_list[0]))
             out_index = common_index[ilocs]
         else:
-            new_codes = [np.repeat(c, n)[keep] for c in self.result_index.codes]
-            new_codes.append(np.tile(np.arange(n), self.ngroups)[keep])
-            new_levels = [*self.result_index.levels, np.arange(n)]
-            out_index = pd.MultiIndex(
-                codes=new_codes,
-                levels=new_levels,
-                names=[*self.result_index.names, None],
-            )[keep]
+            if n is None:
+                # For cases where we don't have n, use a simple range index
+                n_selected = len(ilocs)
+                out_index = pd.RangeIndex(n_selected)
+            else:
+                new_codes = [np.repeat(c, n)[keep] for c in self.result_index.codes]
+                new_codes.append(np.tile(np.arange(n), self.ngroups)[keep])
+                new_levels = [*self.result_index.levels, np.arange(n)]
+                out_index = pd.MultiIndex(
+                    codes=new_codes,
+                    levels=new_levels,
+                    names=[*self.result_index.names, None],
+                )[keep]
 
         return_1d = isinstance(values, ArrayType1D)
         if return_1d:
             return pd.Series(value_list[0][ilocs], out_index)
         else:
             return pd.DataFrame(
-                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index
+                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index, copy=False
             )
+
+    def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return first n rows of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            Number of rows to select from the beginning of each group.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys. 
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            First n rows from each group.
+        """
+        ilocs = numba_funcs._find_first_or_last_n(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            n=n,
+            forward=True,
+        )
+        return self._get_row_selection(values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n)
+
+    def tail(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return last n rows of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            Number of rows to select from the end of each group.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Last n rows from each group.
+        """
+        ilocs = numba_funcs._find_first_or_last_n(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            n=n,
+            forward=False,
+        )
+        return self._get_row_selection(
+            values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n
+        )
+
+    def nth(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
+        """
+        Return nth row of each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to select from.
+        n : int
+            The position to select from each group (0-indexed). Can also be negative to select from the end.
+        keep_input_index : bool, default False
+            If True, preserve the original index of the input values, otherwise use the group keys.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            The nth row from each group.
+        """
+        ilocs = numba_funcs._find_nth(group_key=self.group_ikey, ngroups=self.ngroups, n=n)
+        return self._get_row_selection(values, ilocs, keep_input_index, n=n)
+
+    def _rolling_aggregate(
+        self,
+        func_name: str,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Shared implementation for rolling aggregation methods.
+        
+        Parameters
+        ----------
+        func_name : str
+            Name of the rolling function to call ('rolling_sum', 'rolling_mean', etc.)
+        values : ArrayCollection
+            Values to aggregate, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+            
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling aggregation results with same shape as input.
+        """
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        # Get the appropriate numba function
+        rolling_func = getattr(numba_funcs, func_name)
+        
+        results = [
+            rolling_func(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                window=window,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def rolling_sum(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling sum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling sum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling sum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_sum", values, window, mask)
+
+    @groupby_method
+    def rolling_mean(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling mean of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling mean for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling mean of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_mean", values, window, mask)
+
+    @groupby_method
+    def rolling_min(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling minimum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling minimum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling minimum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_min", values, window, mask)
+
+    @groupby_method
+    def rolling_max(
+        self,
+        values: ArrayCollection,
+        window: int,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate rolling maximum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate rolling maximum for, can be a single array/Series or a collection of them.
+        window : int
+            Size of the rolling window.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling maximum of values for each group, same shape as input.
+        """
+        return self._rolling_aggregate("rolling_max", values, window, mask)
+
+    def _cumulative_aggregate(
+        self,
+        func_name: str,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Shared implementation for cumulative aggregation methods.
+        
+        Parameters
+        ----------
+        func_name : str
+            Name of the cumulative function to call ('cumsum', 'cummin', 'cummax')
+        values : ArrayCollection
+            Values to aggregate, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+            
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative aggregation results with same shape as input.
+        """
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        # Get the appropriate numba function
+        cumulative_func = getattr(numba_funcs, func_name)
+        
+        results = [
+            cumulative_func(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+                skip_na=skip_na,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def cumsum(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative sum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative sum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative sum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cumsum", values, mask, skip_na)
+
+    @groupby_method
+    def cumcount(
+        self,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate cumulative count in each group.
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+
+        Returns
+        -------
+        pd.Series
+            Cumulative count for each group, same shape as input.
+        """
+        if mask is not None:
+            # Validate mask has same length as group_ikey
+            if len(mask) != len(self.group_ikey):
+                raise ValueError(f"Mask length {len(mask)} doesn't match group key length {len(self.group_ikey)}")
+        
+        result = numba_funcs.cumcount(
+            group_key=self.group_ikey,
+            ngroups=self.ngroups,
+            mask=mask,
+        )
+        
+        # Create index - use _key_index if available, otherwise RangeIndex
+        index = self._key_index if self._key_index is not None else pd.RangeIndex(len(result))
+        return pd.Series(result, index=index, name="cumcount")
+
+    @groupby_method
+    def cummin(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative minimum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative minimum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative minimum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cummin", values, mask, skip_na)
+
+    @groupby_method
+    def cummax(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        skip_na: bool = True,
+    ):
+        """
+        Calculate cumulative maximum of values in each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate cumulative maximum for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation.
+        skip_na : bool, default True
+            Whether to skip NA/null values in the calculation.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Cumulative maximum of values for each group, same shape as input.
+        """
+        return self._cumulative_aggregate("cummax", values, mask, skip_na)
+
+    @groupby_method
+    def shift(
+        self,
+        values: ArrayCollection,
+        periods: int = 1,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Shift values within each group by a specified number of periods.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to shift, can be a single array/Series or a collection of them.
+        periods : int, default 1
+            Number of periods to shift. Currently only supports periods=1.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before shifting.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Shifted values for each group, same shape as input.
+            
+        Notes
+        -----
+        Currently only supports periods=1. Multi-period shifting will be 
+        added in a future version.
+
+        Examples
+        --------
+        >>> import pandas as pd
+        >>> from pandas_plus.groupby import GroupBy
+        >>> data = pd.DataFrame({
+        ...     'group': ['A', 'A', 'B', 'B'],
+        ...     'values': [1, 2, 3, 4]
+        ... })
+        >>> groupby = GroupBy(data['group'])
+        >>> groupby.shift(data['values'])
+        0    NaN
+        1    1.0
+        2    NaN
+        3    3.0
+        Name: values, dtype: float64
+        """
+        if periods != 1:
+            raise NotImplementedError(
+                f"periods={periods} not supported. Currently only periods=1 is supported."
+            )
+            
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        results = [
+            numba_funcs.group_shift(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
+
+    @groupby_method
+    def diff(
+        self,
+        values: ArrayCollection,
+        periods: int = 1,
+        mask: Optional[ArrayType1D] = None,
+    ):
+        """
+        Calculate the difference between consecutive elements within each group.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate differences for, can be a single array/Series or a collection of them.
+        periods : int, default 1
+            Number of periods to use for calculating difference. Currently only supports periods=1.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating differences.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            First differences for each group, same shape as input.
+            
+        Notes
+        -----
+        Currently only supports periods=1. Multi-period differences will be 
+        added in a future version.
+
+        Examples
+        --------
+        >>> import pandas as pd
+        >>> from pandas_plus.groupby import GroupBy
+        >>> data = pd.DataFrame({
+        ...     'group': ['A', 'A', 'B', 'B'],
+        ...     'values': [1, 3, 2, 6]
+        ... })
+        >>> groupby = GroupBy(data['group'])
+        >>> groupby.diff(data['values'])
+        0    NaN
+        1    2.0
+        2    NaN
+        3    4.0
+        Name: values, dtype: float64
+        """
+        if periods != 1:
+            raise NotImplementedError(
+                f"periods={periods} not supported. Currently only periods=1 is supported."
+            )
+            
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        np_values = list(map(val_to_numpy, value_list))
+        
+        results = [
+            numba_funcs.group_diff(
+                group_key=self.group_ikey,
+                values=v,
+                ngroups=self.ngroups,
+                mask=mask,
+            )
+            for v in np_values
+        ]
+        
+        out_dict = {}
+        for key, result in zip(value_names, results):
+            out_dict[key] = pd.Series(result, common_index)
+        
+        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        out = pd.DataFrame(out_dict, copy=False)
+        if return_1d:
+            out = out.squeeze(axis=1)
+            if get_array_name(values) is None:
+                out.name = None
+        return out
 
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
@@ -916,7 +1470,7 @@ class GroupBy:
         max_diff: float | int
             The threshold distance for forming a new sub-group
         """
-        return group_nearby_members(
+        return numba_funcs.group_nearby_members(
             group_key=self.group_ikey,
             values=values,
             max_diff=max_diff,
@@ -930,7 +1484,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: Literal[True, False, "row", "column"]
+    margins: Literal[True, False, "row", "column"] = False
 ):
     """
     Perform a cross-tabulation of the group keys and values.
@@ -978,10 +1532,12 @@ def pivot_table(
             mask=mask,
             margins=margins,
         )
+    table = out.unstack(level=levels[n0:])
+    if table.index.nlevels == 1:
+        column_order = out.index.levels[1].intersection(table.columns)
+        table = table[column_order]
 
-    out = out.unstack(level=levels[n0:]).sort_index(axis=1)
-
-    return out
+    return table
 
 
 def crosstab(
