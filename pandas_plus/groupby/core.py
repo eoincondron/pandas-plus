@@ -224,6 +224,23 @@ class GroupBy:
             Index with one level per group key
         """
         return self._result_index
+    
+    @property
+    def groups(self):
+        """
+        Dict mapping group names to row labels.
+        
+        Returns
+        -------
+        dict
+            Dictionary with group names as keys and arrays of row indices as values
+        """
+        groups_dict = {}
+        for group_label in self.result_index:
+            # Find all positions where this group occurs
+            mask = self.group_ikey == np.where(self.result_index == group_label)[0][0]
+            groups_dict[group_label] = np.where(mask)[0]
+        return groups_dict
 
     @property
     def group_ikey(self):
