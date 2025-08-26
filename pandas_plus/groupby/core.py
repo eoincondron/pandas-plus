@@ -230,17 +230,18 @@ class GroupBy:
         """
         Dict mapping group names to row labels.
         
+        Uses optimized numba implementation for better performance with large
+        datasets.
+        
         Returns
         -------
         dict
-            Dictionary with group names as keys and arrays of row indices as values
+            Dictionary with group names as keys and arrays of row indices as
+            values
         """
-        groups_dict = {}
-        for group_label in self.result_index:
-            # Find all positions where this group occurs
-            mask = self.group_ikey == np.where(self.result_index == group_label)[0][0]
-            groups_dict[group_label] = np.where(mask)[0]
-        return groups_dict
+        return numba_funcs.build_groups_dict_optimized(
+            self.group_ikey, self.result_index, self.ngroups
+        )
 
     @property
     def group_ikey(self):

@@ -419,7 +419,98 @@ class SeriesGroupBy(BaseGroupBy):
         return SeriesGroupByRolling(self, window, min_periods)
 
 
-class SeriesGroupByRolling:
+class BaseGroupByRolling:
+    """
+    Base class for rolling window operations on GroupBy objects.
+    
+    This class provides shared functionality for rolling window calculations
+    within each group, reducing code duplication between Series and DataFrame
+    rolling operations.
+    
+    Parameters
+    ----------
+    groupby_obj : SeriesGroupBy or DataFrameGroupBy
+        The groupby object to apply rolling operations to
+    window : int
+        Size of the rolling window
+    min_periods : int, optional
+        Minimum number of observations required to have a value.
+        Defaults to window size.
+    """
+    
+    def __init__(self, groupby_obj: Union['SeriesGroupBy', 'DataFrameGroupBy'], 
+                 window: int, min_periods: Optional[int] = None):
+        self._groupby_obj = groupby_obj
+        self._window = window
+        self._min_periods = min_periods if min_periods is not None else window
+        
+    def _apply_rolling_method(self, method_name: str):
+        """
+        Apply a rolling method and return the result.
+        
+        Parameters
+        ----------
+        method_name : str
+            Name of the rolling method (e.g., 'sum', 'mean', 'min', 'max')
+            
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Result of the rolling operation
+        """
+        method = getattr(self._groupby_obj._grouper, f"rolling_{method_name}")
+        return method(self._groupby_obj._obj, window=self._window)
+        
+    def sum(self) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Calculate rolling sum within each group.
+        
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling sum values with same shape as input
+        """
+        return self._format_result(self._apply_rolling_method("sum"))
+        
+    def mean(self) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Calculate rolling mean within each group.
+        
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling mean values with same shape as input
+        """
+        return self._format_result(self._apply_rolling_method("mean"))
+        
+    def min(self) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Calculate rolling minimum within each group.
+        
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling minimum values with same shape as input
+        """
+        return self._format_result(self._apply_rolling_method("min"))
+        
+    def max(self) -> Union[pd.Series, pd.DataFrame]:
+        """
+        Calculate rolling maximum within each group.
+        
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Rolling maximum values with same shape as input
+        """
+        return self._format_result(self._apply_rolling_method("max"))
+        
+    def _format_result(self, result) -> Union[pd.Series, pd.DataFrame]:
+        """Format the result according to the specific GroupBy type."""
+        raise NotImplementedError("Subclasses must implement _format_result")
+
+
+class SeriesGroupByRolling(BaseGroupByRolling):
     """
     Rolling window operations for SeriesGroupBy objects.
     
@@ -427,42 +518,10 @@ class SeriesGroupByRolling:
     similar to pandas SeriesGroupBy.rolling().
     """
     
-    def __init__(self, groupby_obj: SeriesGroupBy, window: int, min_periods: Optional[int] = None):
-        self._groupby_obj = groupby_obj
-        self._window = window
-        self._min_periods = min_periods if min_periods is not None else window
-        
-    def sum(self) -> pd.Series:
-        """Rolling sum within each group."""
-        result = self._groupby_obj._grouper.rolling_sum(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.Series) else pd.Series(result, name=self._groupby_obj._obj.name)
-        
-    def mean(self) -> pd.Series:
-        """Rolling mean within each group."""
-        result = self._groupby_obj._grouper.rolling_mean(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.Series) else pd.Series(result, name=self._groupby_obj._obj.name)
-        
-    def min(self) -> pd.Series:
-        """Rolling minimum within each group."""
-        result = self._groupby_obj._grouper.rolling_min(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.Series) else pd.Series(result, name=self._groupby_obj._obj.name)
-        
-    def max(self) -> pd.Series:
-        """Rolling maximum within each group."""
-        result = self._groupby_obj._grouper.rolling_max(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.Series) else pd.Series(result, name=self._groupby_obj._obj.name)
+    def _format_result(self, result) -> pd.Series:
+        """Format result as a pandas Series."""
+        return (result if isinstance(result, pd.Series) 
+                else pd.Series(result, name=self._groupby_obj._obj.name))
 
 
 class DataFrameGroupBy(BaseGroupBy):
@@ -543,47 +602,16 @@ class DataFrameGroupBy(BaseGroupBy):
         return DataFrameGroupByRolling(self, window, min_periods)
 
 
-class DataFrameGroupByRolling:
+class DataFrameGroupByRolling(BaseGroupByRolling):
     """
     Rolling window operations for DataFrameGroupBy objects.
     
     This class provides rolling window calculations within each group,
-    similar to pandas DataFrameGroupBy.rolling().
+    similar to pandas DataFrameGroupBy.rolling(). It inherits from 
+    BaseGroupByRolling to reduce code duplication.
     """
     
-    def __init__(self, groupby_obj: DataFrameGroupBy, window: int, min_periods: Optional[int] = None):
-        self._groupby_obj = groupby_obj
-        self._window = window
-        self._min_periods = min_periods if min_periods is not None else window
-        
-    def sum(self) -> pd.DataFrame:
-        """Rolling sum within each group."""
-        result = self._groupby_obj._grouper.rolling_sum(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
-        
-    def mean(self) -> pd.DataFrame:
-        """Rolling mean within each group."""
-        result = self._groupby_obj._grouper.rolling_mean(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
-        
-    def min(self) -> pd.DataFrame:
-        """Rolling minimum within each group."""
-        result = self._groupby_obj._grouper.rolling_min(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
-        
-    def max(self) -> pd.DataFrame:
-        """Rolling maximum within each group."""
-        result = self._groupby_obj._grouper.rolling_max(
-            self._groupby_obj._obj, 
-            window=self._window
-        )
-        return result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
+    def _format_result(self, result) -> pd.DataFrame:
+        """Format result as a pandas DataFrame."""
+        return (result if isinstance(result, pd.DataFrame) 
+                else pd.DataFrame(result))
