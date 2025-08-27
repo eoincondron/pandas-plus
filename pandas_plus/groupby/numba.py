@@ -294,7 +294,7 @@ def find_first_n(
     np.ndarray
         An array of shape (ngroups, n) with the first n indices for each group.
     """
-    return _find_first_or_last_n(group_key, ngroups, n, mask, forward=True)
+    return _find_first_or_last_n(**locals(), forward=True)
 
 
 def find_last_n(
@@ -322,7 +322,7 @@ def find_last_n(
     np.ndarray
         An array of shape (ngroups, n) with the last n indices for each group.
     """
-    return _find_first_or_last_n(group_key, ngroups, n, mask, forward=False)
+    return _find_first_or_last_n(**locals(), forward=False)
 
 
 
@@ -423,33 +423,24 @@ def _group_by_reduce(
 
 @check_data_inputs_aligned("group_key", "values", "mask")
 def _group_func_wrap(
-    reduce_func_name: str | None,
+    reduce_func_name: Literal[
+        "count", "nansum", "nanmin", "nanmax", "first", "last", "size"
+    ],
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
-    initial_value: Optional[int | float] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    group_key = np.asarray(group_key)
+    group_key = _val_to_numpy(group_key)
     if mask is not None:
-        mask = np.asarray(mask)
+        mask = _val_to_numpy(mask)
 
-    if reduce_func_name is None:
-        initial_value = 0
-
-    if values is not None:
-        values = np.asarray(values)
-        values, orig_type = _maybe_cast_timestamp_arr(values)
-        if initial_value is None:
-            initial_value = _default_initial_value_for_type(values)
-
-    target = np.full(ngroups, initial_value)
-
-    if reduce_func_name is None:
-        iterator = _group_by_counter
-    else:
-        iterator = _group_by_reduce
+    values = _val_to_numpy(values, as_list=True)
+    values, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, values)))
+    values = list(values)
+    orig_type = orig_types[0]
+    target = _build_target_for_groupby(values[0].dtype, reduce_func_name, ngroups)
 
     kwargs = dict(
         group_key=group_key,
@@ -458,18 +449,21 @@ def _group_func_wrap(
         mask=mask,
     )
     if reduce_func_name is not None:
-        kwargs["reduce_func"] = getattr(NumbaReductionOps, reduce_func_name)
-
+        kwargs["reduce_func"] = getattr(ScalarFuncs, reduce_func_name)
     if n_threads == 1:
-        out = iterator(**kwargs)
+        out = _group_by_reduce(**kwargs)
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
-        chunks = parallel_map(iterator, [args.args for args in chunked_args])
+        chunks = parallel_map(_group_by_reduce, [args.args for args in chunked_args])
         arr = np.vstack(chunks)
-        chunk_reduce = "sum" if reduce_func_name is None else reduce_func_name
+        chunk_reduce = (
+            "sum"
+            if reduce_func_name in ("size", "count")
+            else reduce_func_name.replace("nan", "")
+        )
         out = nanops.reduce_2d(chunk_reduce, arr)
 
-    if reduce_func_name is None:
+    if reduce_func_name in ("count", "size"):
         out = out.astype(np.int64)
     elif orig_type.kind in "mM":
         out = out.astype(orig_type)
@@ -502,7 +496,7 @@ def group_size(
     ArrayType1D
         An array with the count of elements in each group.
     """
-    return _group_func_wrap(reduce_func_name=None, values=None, **locals())
+    return _group_func_wrap("size", values=group_key, **locals())
 
 
 def group_count(
@@ -545,7 +539,7 @@ def group_count(
     >>> print(counts)
     [2 2 1]
     """
-    return _group_func_wrap(reduce_func_name=None, **locals())
+    return _group_func_wrap("count", **locals())
 
 
 def group_sum(
@@ -555,11 +549,7 @@ def group_sum(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    if values.dtype.kind == "f":
-        initial_value = 0.0
-    else:
-        initial_value = 0
-    return _group_func_wrap("sum", **locals())
+    return _group_func_wrap("nansum", **locals())
 
 
 def group_mean(
@@ -574,7 +564,7 @@ def group_mean(
     int_sum, orig_type = _maybe_cast_timestamp_arr(sum)
     count = group_count(**kwargs)
     mean = int_sum / count
-    if values.dtype.kind in "mM":
+    if orig_type.kind in "mM":
         mean = mean.astype(orig_type)
     return mean
 
@@ -586,7 +576,7 @@ def group_min(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    return _group_func_wrap("min", **locals())
+    return _group_func_wrap("nanmin", **locals())
 
 
 def group_max(
@@ -596,7 +586,7 @@ def group_max(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    return _group_func_wrap("max", **locals())
+    return _group_func_wrap("nanmax", **locals())
 
 
 class NumbaGroupByMethods:
