@@ -207,7 +207,7 @@ class BaseGroupBy(ABC):
         "Compute group sizes (including null values)", include_numeric_only=False, include_margins=False
     )
     def size(self, mask: Optional[ArrayType1D] = None) -> pd.Series:
-        return self._grouper.size(self._obj, mask=mask)
+        return self._grouper.size(mask=mask)
 
     @groupby_aggregation(
         "Get first non-null value in each group",
