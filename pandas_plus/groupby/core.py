@@ -611,7 +611,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
-        ddof: int = 0,
+        ddof: int = 1,
     ):
         """
         Calculate variance of values in each group.
@@ -636,19 +636,13 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(mask=mask, margins=margins, transform=transform)
-        sq_mean = self.mean(
-            {k: v**2 for k, v in zip(value_names, value_list)}, **kwargs
-        )
-        if ddof:
-            size = self.size(**kwargs)
-            sq_mean *= size / (size + ddof)
-            # TODO: fix ddof
+        sq_sum = self.sum({k: v**2 for k, v in zip(value_names, value_list)}, **kwargs)
+        sum_sq = self.sum(values=values, **kwargs) ** 2
+        if sum_sq.ndim == 1:  # sq_sum is always DataFrame since we are passing a dict
+            sq_sum = sq_sum.squeeze(axis=1)
 
-        mean_sq = self.mean(values, **kwargs) ** 2
-        if mean_sq.ndim == 1:
-            sq_mean = sq_mean.squeeze(axis=1)
-
-        return sq_mean - mean_sq
+        count = self.count(values=values, **kwargs)
+        return (sq_sum -  sum_sq / count) / (count - ddof)
 
     @groupby_method
     def std(
@@ -657,7 +651,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
-        ddof: int = 0,
+        ddof: int = 1,
     ):
         """
         Calculate standard deviation of values in each group.
