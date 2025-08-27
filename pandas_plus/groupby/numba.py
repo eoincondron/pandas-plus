@@ -1425,6 +1425,7 @@ def _cumulative_reduce(
     # Track current state for each group
     group_last_seen = np.full(ngroups, -1)
     i = -1
+    has_null_key = False
 
     for arr in values:
         for val in arr:
@@ -1432,6 +1433,7 @@ def _cumulative_reduce(
             key = group_key[i]
 
             if key < 0:
+                has_null_key = True
                 continue
 
             last_seen = group_last_seen[key]
@@ -1444,7 +1446,7 @@ def _cumulative_reduce(
             target[i], _ = reduce_func(target[last_seen], val, last_seen >= 0)
             group_last_seen[key] = i
 
-    return target
+    return target, has_null_key
 
 
 def _apply_cumulative(
@@ -1501,7 +1503,7 @@ def _apply_cumulative(
 
     values = _val_to_numpy(values, as_list=True)
     target = _build_target_for_groupby(values[0].dtype, operation, len(group_key))
-    result = _cumulative_reduce(
+    result, has_null_keys = _cumulative_reduce(
         group_key=group_key,
         values=values,
         reduce_func=reduce_func,
@@ -1509,6 +1511,12 @@ def _apply_cumulative(
         mask=mask,
         target=target,
     )
+    if has_null_keys:
+        if operation == "count":
+            na_rep = 0
+        else:
+            na_rep = _null_value_for_numpy_type(result.dtype)
+        result[np.asarray(group_key) < 0] = na_rep
 
     return result
 
