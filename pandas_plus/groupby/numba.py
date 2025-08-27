@@ -395,6 +395,32 @@ class ScalarFuncs:
             return next_val, True
 
 
+@nb.njit(nogil=True)
+def _group_by_reduce(
+    group_key: np.ndarray,
+    values: NumbaList[np.ndarray],
+    target: np.ndarray,
+    reduce_func: Callable,
+    mask: np.ndarray = None,
+):
+    masked = mask is not None
+    seen = np.full(len(target), False)
+    i = -1
+    for arr in values:
+        for val in arr:
+            i += 1
+            key = group_key[i]
+            if key < 0:
+                continue
+
+            if masked and not mask[i]:
+                continue
+
+            target[key], seen[key] = reduce_func(target[key], val, seen[key])
+
+    return target
+
+
 @check_data_inputs_aligned("group_key", "values", "mask")
 def _group_func_wrap(
     reduce_func_name: str | None,
