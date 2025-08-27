@@ -85,15 +85,14 @@ def arr_is_null(arr):
     return out
 
 
-def _null_value_for_array_type(arr: np.ndarray):
+def _null_value_for_numpy_type(np_type: np.dtype):
     """
     Get the appropriate null/NA value for the given array's dtype.
 
     Parameters
     ----------
-    arr : np.ndarray
-        Array whose dtype determines the null value
-
+    np_type : np.dtype
+        Numpy dtype of the array
     Returns
     -------
     scalar
@@ -104,24 +103,20 @@ def _null_value_for_array_type(arr: np.ndarray):
     TypeError
         If the array's dtype doesn't have a defined null representation
     """
-    error = TypeError(f"No null value for {arr.dtype}")
-    match arr.dtype.kind:
+    error = TypeError(f"No null value for {np_type}")
+    match np_type.kind:
         case "i":
-            if arr.dtype.itemsize >= 4:
-                return np.iinfo(arr.dtype).min
-            else:
-                raise error
+            return np.iinfo(np_type).min
         case "f":
-            return np.array([np.nan], dtype=arr.dtype)[0]
+            return np.array([np.nan], dtype=np_type)[0]
         case "u":
-            if arr.dtype.itemsize >= 4:
-                return np.iinfo(arr.dtype).max
-            else:
-                raise error
+            return np.iinfo(np_type).max
         case "m":
             return np.timedelta64("NaT")
         case "M":
             return np.datetime64("NaT")
+        case "b":
+            return False
         case _:
             raise error
 

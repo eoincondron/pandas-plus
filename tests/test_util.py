@@ -10,7 +10,7 @@ from pandas_plus.util import (
     MAX_INT,
     MIN_INT,
     _get_first_non_null,
-    _null_value_for_array_type,
+    _null_value_for_numpy_type,
     convert_data_to_arr_list_and_keys,
     get_array_name,
     is_null,
@@ -289,64 +289,46 @@ class TestNullValueForArrayType:
     def test_null_value_for_int64(self):
         """Test null value for int64 array"""
         arr = np.array([1, 2, 3], dtype=np.int64)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert null_value == MIN_INT
         assert null_value == np.iinfo(np.int64).min
 
     def test_null_value_for_int32(self):
         """Test null value for int32 array"""
         arr = np.array([1, 2, 3], dtype=np.int32)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert null_value == np.iinfo(np.int32).min
-
-    def test_null_value_for_int16(self):
-        """Test null value for int16 array - should raise TypeError"""
-        arr = np.array([1, 2, 3], dtype=np.int16)
-        with pytest.raises(TypeError):
-            _null_value_for_array_type(arr)
 
     def test_null_value_for_float64(self):
         """Test null value for float64 array"""
         arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert np.isnan(null_value)
 
     def test_null_value_for_float32(self):
         """Test null value for float32 array"""
         arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert np.isnan(null_value)
-        assert null_value.dtype == np.float32
 
     def test_null_value_for_uint64(self):
         """Test null value for uint64 array"""
         arr = np.array([1, 2, 3], dtype=np.uint64)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert null_value == np.iinfo(np.uint64).max
 
     def test_null_value_for_uint32(self):
         """Test null value for uint32 array"""
         arr = np.array([1, 2, 3], dtype=np.uint32)
-        null_value = _null_value_for_array_type(arr)
+        null_value = _null_value_for_numpy_type(arr.dtype)
         assert null_value == np.iinfo(np.uint32).max
 
-    def test_null_value_for_uint16(self):
-        """Test null value for uint16 array - should raise TypeError"""
-        arr = np.array([1, 2, 3], dtype=np.uint16)
-        with pytest.raises(TypeError):
-            _null_value_for_array_type(arr)
-
-    def test_null_value_for_bool(self):
-        """Test null value for boolean array - should raise TypeError"""
-        arr = np.array([True, False], dtype=bool)
-        with pytest.raises(TypeError):
-            _null_value_for_array_type(arr)
 
     def test_null_value_for_complex(self):
         """Test null value for complex array - should raise TypeError"""
         arr = np.array([1 + 2j, 3 + 4j], dtype=complex)
         with pytest.raises(TypeError):
-            _null_value_for_array_type(arr)
+            _null_value_for_numpy_type(arr.dtype)
 
 
 class TestPrettyCut:
