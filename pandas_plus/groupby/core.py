@@ -1075,7 +1075,6 @@ class GroupBy:
             Rolling aggregation results with same shape as input.
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        np_values = list(map(val_to_numpy, value_list))
 
         # Get the appropriate numba function
         rolling_func = getattr(numba_funcs, func_name)
@@ -1088,7 +1087,7 @@ class GroupBy:
                 window=window,
                 mask=mask,
             )
-            for v in np_values
+            for v in value_list
         ]
 
         out_dict = {}
