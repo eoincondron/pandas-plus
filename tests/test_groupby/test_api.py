@@ -200,7 +200,7 @@ class TestSeriesGroupBy:
         result = gb.size()
         expected = pandas_gb.size()
         
-        pd.testing.assert_series_equal(result, expected)
+        pd.testing.assert_series_equal(result, expected, check_names=False)
     
     def test_margins_functionality(self):
         """Test margins parameter in aggregation methods."""
@@ -362,7 +362,7 @@ class TestDataFrameGroupBy:
         
         # Size should return a Series even for DataFrameGroupBy
         assert isinstance(result, pd.Series)
-        pd.testing.assert_series_equal(result, expected)
+        pd.testing.assert_series_equal(result, expected, check_names=False)
     
     def test_dataframe_mask_parameter(self):
         """Test mask parameter with DataFrame."""

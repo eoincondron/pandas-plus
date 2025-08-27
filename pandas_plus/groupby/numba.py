@@ -871,12 +871,15 @@ def _apply_rolling_1d_to_2d(
         # Single-threaded: process columns sequentially
         result = np.empty((n_rows, n_cols))
         for col in range(n_cols):
-            result[:, col] = rolling_1d_func(**kwargs, values=values[:, col])
+            kwargs["values"] = _val_to_numpy(values[:, col], as_list=True)
+            result[:, col] = rolling_1d_func(**kwargs)
         return result
     else:
         # Multi-threaded: process columns in parallel
         def process_column(col_idx):
-            return rolling_1d_func(**kwargs, values=values[:, col_idx])
+            return rolling_1d_func(
+                **kwargs, values=_val_to_numpy(values[:, col_idx], as_list=True)
+            )
 
         # Use parallel_map to process columns in parallel
         column_results = parallel_map(
@@ -947,21 +950,21 @@ def _apply_rolling(
         raise ValueError(f"Unsupported rolling operation: {operation}")
 
     # Convert inputs to appropriate numpy arrays
-    group_key = np.asarray(group_key, dtype=np.int64)
-    values = np.asarray(values, dtype=np.float64)
+    group_key = _val_to_numpy(group_key)
 
     if mask is not None:
-        mask = np.asarray(mask, dtype=bool)
+        mask = _val_to_numpy(mask)
 
     rolling_1d_func = rolling_1d_funcs[operation]
 
     if values.ndim == 1:
         del kwargs["n_threads"]
+        kwargs["values"] = _val_to_numpy(values, as_list=True)
         return rolling_1d_func(**kwargs)
     elif values.ndim == 2:
         return _apply_rolling_1d_to_2d(rolling_1d_func, **kwargs)
     else:
-        raise ValueError(f"values must be 1D or 2D, got {values.ndim}D")
+        raise ValueError(f"values must be 1D or 2D got {values.ndim}D")
 
 
 @nb.njit(nogil=True, fastmath=False)
@@ -998,7 +1001,7 @@ def _rolling_sum_or_mean_1d(
     if min_periods is None:
         min_periods = window
 
-    out = np.full(len(values), np.nan)
+    out = np.full(len(group_key), np.nan)
     masked = mask is not None
 
     # Track rolling sums and circular buffers for each group
@@ -1007,47 +1010,49 @@ def _rolling_sum_or_mean_1d(
     group_positions = np.zeros(ngroups, dtype=np.int64)
     group_non_null = np.zeros(ngroups, dtype=np.int64)
     group_n_seen = np.zeros(ngroups, dtype=np.int64)
+    i = -1
 
-    for i in range(len(group_key)):
-        key = group_key[i]
+    for arr in values:
+        for val in arr:
+            i += 1
+            key = group_key[i]
 
-        if key < 0:  # Skip null keys
-            continue
+            if key < 0:  # Skip null keys
+                continue
 
-        if masked and not mask[i]:
-            continue
+            if masked and not mask[i]:
+                continue
 
-        val = values[i]
-        val_is_null = is_null(val)
+            val_is_null = is_null(val)
 
-        # Get current position in circular buffer for this group
-        pos = group_positions[key]
+            # Get current position in circular buffer for this group
+            pos = group_positions[key]
 
-        # If buffer is full, subtract the value that will be replaced
-        group_full = group_n_seen[key] >= window
-        if group_full:
-            old_val = group_buffers[key, pos]
-            if not is_null(old_val):
-                group_sums[key] -= old_val
-                group_non_null[key] -= 1
+            # If buffer is full, subtract the value that will be replaced
+            group_full = group_n_seen[key] >= window
+            if group_full:
+                old_val = group_buffers[key, pos]
+                if not is_null(old_val):
+                    group_sums[key] -= old_val
+                    group_non_null[key] -= 1
 
-        # Add new value
-        if not val_is_null:
-            group_non_null[key] += 1
-            group_sums[key] += val
+            # Add new value
+            if not val_is_null:
+                group_non_null[key] += 1
+                group_sums[key] += val
 
-        group_buffers[key, pos] = val
+            group_buffers[key, pos] = val
 
-        # Update position and count
-        group_positions[key] = (pos + 1) % window
-        if not group_full:
-            group_n_seen[key] += 1
+            # Update position and count
+            group_positions[key] = (pos + 1) % window
+            if not group_full:
+                group_n_seen[key] += 1
 
-        if group_non_null[key] >= min_periods:
-            if mean:
-                out[i] = group_sums[key] / group_non_null[key]
-            else:
-                out[i] = group_sums[key]
+            if group_non_null[key] >= min_periods:
+                if mean:
+                    out[i] = group_sums[key] / group_non_null[key]
+                else:
+                    out[i] = group_sums[key]
 
     return out
 
@@ -1215,7 +1220,7 @@ def _rolling_max_min_1d(
     if min_periods is None:
         min_periods = window
 
-    out = np.full(len(values), np.nan)
+    out = np.full(len(group_key), np.nan)
     masked = mask is not None
 
     # Track rolling sums and circular buffers for each group
@@ -1226,59 +1231,61 @@ def _rolling_max_min_1d(
     group_non_null = np.zeros(ngroups, dtype=np.int64)
     group_n_seen = np.zeros(ngroups, dtype=np.int64)
 
-    for i in range(len(group_key)):
-        key = group_key[i]
+    i = -1
+    for arr in values:
+        for val in arr:
+            i += 1
+            key = group_key[i]
 
-        if key < 0:  # Skip null keys
-            continue
+            if key < 0:  # Skip null keys
+                continue
 
-        if masked and not mask[i]:
-            continue
+            if masked and not mask[i]:
+                continue
 
-        val = values[i]
-        val_is_null = is_null(val)
+            val_is_null = is_null(val)
 
-        # Get current position in circular buffer for this group
-        pos = group_buffer_pos[key]
-        cur_pos = group_cur_positions[key]
-        cur_best = group_current[key]
+            # Get current position in circular buffer for this group
+            pos = group_buffer_pos[key]
+            cur_pos = group_cur_positions[key]
+            cur_best = group_current[key]
 
-        need_recalc = pos == cur_pos
+            need_recalc = pos == cur_pos
 
-        n_seen = group_n_seen[key]
-        group_full = n_seen >= window
-        if group_full:
-            to_remove = group_buffers[key, pos]
-            if not is_null(to_remove):
-                group_non_null[key] -= 1
+            n_seen = group_n_seen[key]
+            group_full = n_seen >= window
+            if group_full:
+                to_remove = group_buffers[key, pos]
+                if not is_null(to_remove):
+                    group_non_null[key] -= 1
 
-        group_buffers[key, pos] = val
-        # Add new value
-        if not val_is_null:
-            if (
-                group_non_null[key] == 0
-                or (want_max and val >= cur_best)
-                or (not want_max and val <= cur_best)
-            ):
-                group_current[key] = val
-                group_cur_positions[key] = pos
-                need_recalc = False
-            group_non_null[key] += 1
+            group_buffers[key, pos] = val
+            # Add new value
+            if not val_is_null:
+                if (
+                    group_non_null[key] == 0
+                    or (want_max and val >= cur_best)
+                    or (not want_max and val <= cur_best)
+                ):
+                    group_current[key] = val
+                    group_cur_positions[key] = pos
+                    need_recalc = False
+                group_non_null[key] += 1
 
-        if group_full and need_recalc:
-            # Recompute max from remaining window
-            window_vals = group_buffers[key]
-            window_best, cur_pos = min_or_max_and_position(window_vals, want_max)
-            group_current[key] = window_best
-            group_cur_positions[key] = cur_pos
+            if group_full and need_recalc:
+                # Recompute max from remaining window
+                window_vals = group_buffers[key]
+                window_best, cur_pos = min_or_max_and_position(window_vals, want_max)
+                group_current[key] = window_best
+                group_cur_positions[key] = cur_pos
 
-        # Update position and count
-        group_buffer_pos[key] = (pos + 1) % window
-        if not group_full:
-            group_n_seen[key] += 1
+            # Update position and count
+            group_buffer_pos[key] = (pos + 1) % window
+            if not group_full:
+                group_n_seen[key] += 1
 
-        if group_non_null[key] >= min_periods:
-            out[i] = group_current[key]
+            if group_non_null[key] >= min_periods:
+                out[i] = group_current[key]
 
     return out
 
