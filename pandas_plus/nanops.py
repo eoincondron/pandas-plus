@@ -7,7 +7,7 @@ from .util import (
     is_null,
     n_threads_from_array_length,
     parallel_map,
-    _null_value_for_array_type,
+    _null_value_for_numpy_type,
     _get_first_non_null,
     NumbaReductionOps,
 )
@@ -304,7 +304,7 @@ def nanmean(
     sum = nansum(**locals())
     n = count(arr, axis=axis)
     if n == 0:
-        return _null_value_for_array_type(arr)
+        return _null_value_for_numpy_type(arr.dtype)
     return sum / n
 
 
@@ -408,7 +408,7 @@ def nanvar(
     sum = reduce(reduce_func_name="sum", **kwargs)
     d = n - ddof
     if d == 0 or n == 0:
-        return _null_value_for_array_type(arr)
+        return _null_value_for_numpy_type(arr.dtype)
     return (sum_sq - sum**2 / n) / d
 
 

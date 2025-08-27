@@ -1,22 +1,169 @@
 import inspect
 from inspect import signature
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Literal
 from functools import wraps
 from copy import deepcopy
 
 import numba as nb
 import numpy as np
+import pandas as pd
+import pyarrow as pa
+from numba.typed import List as NumbaList
 
 from ..util import (
     ArrayType1D,
     check_data_inputs_aligned,
     is_null,
-    _null_value_for_array_type,
+    _null_value_for_numpy_type,
     _maybe_cast_timestamp_arr,
     parallel_map,
     NumbaReductionOps,
 )
 from .. import nanops
+
+
+# ===== Array Preparation Methods =====
+
+
+def _array_split_for_lists(arr_list, n_chunks):
+    """
+    Split a list of arrays or a single array into approximately equal chunks.
+
+    This function is optimized for handling chunked PyArrow arrays backed by
+    pandas Series. It distributes the total elements across chunks while
+    maintaining array boundaries when possible.
+
+    Parameters
+    ----------
+    arr_list : list of array-like or np.ndarray
+        List of arrays to split, or a single numpy array. Each array can be
+        numpy arrays, pandas Series chunks, or other array-like objects.
+    n_chunks : int
+        Number of chunks to split the data into. Must be positive.
+
+    Returns
+    -------
+    list of list or list of np.ndarray
+        If input is np.ndarray: list of numpy array chunks
+        If input is list: list of lists, where each sub-list contains
+        array segments that together form one chunk
+
+    Raises
+    ------
+    ValueError
+        If n_chunks is not a positive integer
+
+    Notes
+    -----
+    - For single numpy arrays, delegates to np.array_split for optimal performance
+    - For lists of arrays, splits by total element count, not by number of arrays
+    - Attempts to create chunks of approximately equal total length
+    - May split individual arrays across chunk boundaries if needed
+    - Designed specifically for PyArrow chunked array optimization
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from pandas_plus.groupby.numba import array_split_for_lists
+
+    Single array (delegates to numpy):
+    >>> arr = np.array([1, 2, 3, 4, 5, 6])
+    >>> chunks = array_split_for_lists(arr, 3)
+    >>> [chunk.tolist() for chunk in chunks]
+    [[1, 2], [3, 4], [5, 6]]
+
+    List of arrays:
+    >>> arrays = [np.array([1, 2, 3]), np.array([4, 5]), np.array([6, 7, 8, 9])]
+    >>> chunks = array_split_for_lists(arrays, 2)  # Total length 9, ~4-5 per chunk
+    >>> # Result: chunks with approximately equal total lengths
+
+    PyArrow chunked array use case:
+    >>> # When pandas Series backed by chunked PyArrow arrays are converted
+    >>> chunked_arrays = [chunk1, chunk2, chunk3]  # From PyArrow ChunkedArray
+    >>> parallel_chunks = array_split_for_lists(chunked_arrays, 4)
+    """
+    if not isinstance(n_chunks, int) or n_chunks <= 0:
+        raise ValueError(f"n_chunks must be a positive integer, got {n_chunks}")
+
+    if isinstance(arr_list, np.ndarray):
+        return np.array_split(arr_list, n_chunks)
+
+    lengths = [len(a) for a in arr_list]
+    total = sum(lengths)
+
+    # Handle edge case of empty arrays
+    if total == 0:
+        return [[] for _ in range(n_chunks)]
+
+    chunk_len = int(np.ceil(total / n_chunks))
+    chunks = [[]]
+
+    for arr in arr_list:
+        remainder = arr
+        while len(remainder):
+            space = chunk_len - sum(map(len, chunks[-1]))
+            if not space:
+                chunks.append([])
+                continue
+            chunks[-1].append(remainder[:space])
+            remainder = remainder[space:]
+
+    return chunks
+
+
+def _val_to_numpy(
+    val: ArrayType1D, as_list: bool = False
+) -> np.ndarray | NumbaList[np.ndarray]:
+    """
+    Convert various array types to numpy array.
+
+    Parameters
+    ----------
+    val : ArrayType1D
+        Input array to convert (numpy array, pandas Series, polars Series, etc.)
+
+    Returns
+    -------
+    np.ndarray
+        NumPy array representation of the input
+    """
+    if isinstance(val, pd.Series) and "pyarrow" in str(val.dtype):
+        val = pa.Array.from_pandas(val)  # type: ignore
+        chunked = isinstance(
+            val,
+            pa.ChunkedArray,
+        )
+        if chunked and as_list:
+            return NumbaList([chunk.to_numpy() for chunk in val.chunks])
+
+    try:
+        val = val.to_numpy()  # type: ignore
+    except AttributeError:
+        val = np.asarray(val)
+
+    if as_list:
+        return NumbaList([val])
+    else:
+        return val
+
+
+def _build_target_for_groupby(np_type, operation: str, shape):
+    if operation == "count":
+        target = np.zeros(shape, dtype=np.int64)
+        return target
+
+    dtype = np_type
+    if "sum" in operation:
+        if np_type.kind in "iub":
+            dtype = "uint64" if np_type.kind == "u" else "int64"
+        initial_value = 0
+    else:
+        initial_value = _null_value_for_numpy_type(np.dtype(dtype))
+
+    target = np.full(shape, initial_value, dtype=dtype)
+
+    return target
+
 
 
 @nb.njit
