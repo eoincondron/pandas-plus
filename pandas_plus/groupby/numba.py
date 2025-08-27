@@ -682,6 +682,9 @@ def group_nearby_members(
     return out
 
 
+# ===== Shift/Diff Methods =====
+
+
 @check_data_inputs_aligned("group_key", "values")
 def group_diff(
     group_key: ArrayType1D,
@@ -710,7 +713,8 @@ def group_diff(
     np.ndarray
         An array with the differences between consecutive elements in each group.
     """
-    null_value = _null_value_for_array_type(values)
+    values = _val_to_numpy(values)
+    null_value = _null_value_for_numpy_type(values)
     if values.dtype.kind in "iu":
         null_value = np.nan
     elif values.dtype.kind == "M":
@@ -744,9 +748,8 @@ def group_shift(
     np.ndarray
         An array with the shifted values in each group.
     """
-    if values.dtype.kind in "iu":
-        null_value = np.nan
-    null_value = _null_value_for_array_type(values)
+    values = _val_to_numpy(values)
+    null_value = _null_value_for_numpy_type(values.dtype)
     return _group_diff_or_shift(**locals(), shift=True)
 
 
