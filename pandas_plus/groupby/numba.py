@@ -165,6 +165,45 @@ def _build_target_for_groupby(np_type, operation: str, shape):
     return target
 
 
+@check_data_inputs_aligned("group_key", "mask")
+def _chunk_groupby_args(
+    n_chunks: int,
+    group_key: np.ndarray,
+    values: List[np.ndarray] | np.ndarray | None,
+    target: np.ndarray,
+    reduce_func: Optional[Callable] = None,
+    mask: Optional[np.ndarray] = None,
+):
+    if values is not None:
+        if sum(len(arr) for arr in values) != len(group_key):
+            raise ValueError(
+                "Length of group_key must match total length of all arrays in values"
+            )
+    kwargs = locals().copy()
+    del kwargs["n_chunks"]
+    shared_kwargs = {"target": target}
+    if reduce_func is None:
+        iterator = _group_by_counter
+    else:
+        iterator = _group_by_reduce
+        shared_kwargs["reduce_func"] = reduce_func
+
+    chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
+    for name in ["group_key", "values", "mask"]:
+        if kwargs[name] is None:
+            chunks = [None] * n_chunks
+        else:
+            chunks = _array_split_for_lists(kwargs[name], n_chunks)
+        for chunk_no, arr in enumerate(chunks):
+            chunked_kwargs[chunk_no][name] = arr
+
+    chunked_args = [signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs]
+
+    return chunked_args
+
+
+# ===== Row Selection Methods =====
+
 
 @nb.njit
 def _find_nth(
@@ -349,36 +388,6 @@ def _default_initial_value_for_type(arr):
         return _null_value_for_array_type(arr)
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
-def _chunk_groupby_args(
-    n_chunks: int,
-    group_key: np.ndarray,
-    values: np.ndarray | None,
-    target: np.ndarray,
-    reduce_func: Optional[Callable] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    kwargs = locals().copy()
-    del kwargs["n_chunks"]
-    shared_kwargs = {"target": target}
-    if reduce_func is None:
-        iterator = _group_by_counter
-    else:
-        iterator = _group_by_reduce
-        shared_kwargs["reduce_func"] = reduce_func
-
-    chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
-    for name in ["group_key", "values", "mask"]:
-        if kwargs[name] is None:
-            chunks = [None] * n_chunks
-        else:
-            chunks = np.array_split(kwargs[name], n_chunks)
-        for chunk_no, arr in enumerate(chunks):
-            chunked_kwargs[chunk_no][name] = arr
-
-    chunked_args = [signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs]
-
-    return chunked_args
 
 
 @check_data_inputs_aligned("group_key", "values", "mask")
