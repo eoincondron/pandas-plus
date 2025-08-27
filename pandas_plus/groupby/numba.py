@@ -1698,25 +1698,25 @@ def cummax(
     >>> print(result)
     [1. 3. 3. 4. 4. 5.]
     """
-    return _apply_cumulative("max", group_key, values, ngroups, mask, skip_na)
+    return _apply_cumulative("nanmax", group_key, values, ngroups, mask, skip_na)
 
 
 @nb.njit(nogil=True, fastmath=False)
 def _build_groups_mapping(group_ikey: np.ndarray, ngroups: int):
     """
     Build groups mapping efficiently in a single pass.
-    
+
     This function creates a mapping from group indices to arrays of row
     positions where each group occurs. It's optimized for performance with
     large datasets.
-    
+
     Parameters
     ----------
     group_ikey : np.ndarray
         Integer array where each element indicates group index for that row
     ngroups : int
         Number of unique groups
-        
+
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
@@ -1728,19 +1728,19 @@ def _build_groups_mapping(group_ikey: np.ndarray, ngroups: int):
     for i in range(len(group_ikey)):
         if group_ikey[i] >= 0:  # Skip null groups (negative indices)
             group_counts[group_ikey[i]] += 1
-    
+
     # Calculate starting positions for each group in the output array
     group_starts = np.zeros(ngroups + 1, dtype=np.int64)
     for i in range(ngroups):
         group_starts[i + 1] = group_starts[i] + group_counts[i]
-    
+
     # Create output array to hold all indices
     total_valid = group_starts[ngroups]
     indices = np.empty(total_valid, dtype=np.int64)
-    
+
     # Track current position for each group while filling
     current_pos = group_starts[:-1].copy()
-    
+
     # Fill the indices array
     for row_idx in range(len(group_ikey)):
         group_idx = group_ikey[row_idx]
@@ -1748,20 +1748,18 @@ def _build_groups_mapping(group_ikey: np.ndarray, ngroups: int):
             pos = current_pos[group_idx]
             indices[pos] = row_idx
             current_pos[group_idx] += 1
-    
+
     return group_starts, indices
 
 
-def build_groups_dict_optimized(
-    group_ikey: np.ndarray, result_index, ngroups: int
-):
+def build_groups_dict_optimized(group_ikey: np.ndarray, result_index, ngroups: int):
     """
     Build groups dictionary using optimized numba implementation.
-    
+
     This function creates a dictionary mapping group labels to arrays of row
     indices where each group occurs. It uses an optimized single-pass algorithm
     that's much faster than the original implementation for large datasets.
-    
+
     Parameters
     ----------
     group_ikey : np.ndarray
@@ -1770,7 +1768,7 @@ def build_groups_dict_optimized(
         Index containing the unique group labels
     ngroups : int
         Number of unique groups
-        
+
     Returns
     -------
     dict
@@ -1780,7 +1778,9 @@ def build_groups_dict_optimized(
     # Use numba-optimized function to get the mapping
     group_starts, indices = _build_groups_mapping(group_ikey, ngroups)
     group_indices = np.array_split(indices, group_starts[1:-1])
-    
+
     # Build the final dictionary
-    groups_dict = {key: idx for key, idx in zip(result_index, group_indices) if len(idx) > 0}   
+    groups_dict = {
+        key: idx for key, idx in zip(result_index, group_indices) if len(idx) > 0
+    }
     return groups_dict
