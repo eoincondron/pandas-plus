@@ -45,26 +45,6 @@ def array_to_series(arr: ArrayType1D):
         return pd.Series(arr)
 
 
-def val_to_numpy(val: ArrayType1D):
-    """
-    Convert various array types to numpy array.
-
-    Parameters
-    ----------
-    val : ArrayType1D
-        Input array to convert (numpy array, pandas Series, polars Series, etc.)
-
-    Returns
-    -------
-    np.ndarray
-        NumPy array representation of the input
-    """
-    try:
-        return val.to_numpy()  # type: ignore
-    except AttributeError:
-        return np.asarray(val)
-
-
 def _get_indexes_from_values(arr_list: List[ArrayType1D]) -> List[pd.Index]:
     """
     Extract pandas Index objects from the provided values.
@@ -355,7 +335,6 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
 
-        np_values = list(map(val_to_numpy, value_list))
         func = getattr(numba_funcs, f"group_{func_name}")
 
         results = map(
@@ -366,7 +345,7 @@ class GroupBy:
                 ngroups=self.ngroups + 1,
                 n_threads=self._n_threads,
             ),
-            np_values,
+            value_list,
         )
         out_dict = {}
         for key, result in zip(value_names, results):
@@ -1185,8 +1164,7 @@ class GroupBy:
             Cumulative aggregation results with same shape as input.
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        np_values = list(map(val_to_numpy, value_list))
-        
+
         # Get the appropriate numba function
         cumulative_func = getattr(numba_funcs, func_name)
         
@@ -1198,7 +1176,7 @@ class GroupBy:
                 mask=mask,
                 skip_na=skip_na,
             )
-            for v in np_values
+            for v in value_list
         ]
         
         out_dict = {}
@@ -1242,6 +1220,7 @@ class GroupBy:
     @groupby_method
     def cumcount(
         self,
+        values: Optional[ArrayType1D] = None,
         mask: Optional[ArrayType1D] = None,
     ):
         """
