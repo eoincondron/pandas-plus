@@ -589,39 +589,24 @@ def group_max(
     return _group_func_wrap("nanmax", **locals())
 
 
-class NumbaGroupByMethods:
+def group_first(
+    group_key: ArrayType1D,
+    values: ArrayType1D,
+    ngroups: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    return _group_func_wrap("first", **locals())
 
-    @staticmethod
-    @check_data_inputs_aligned("group_key", "values", "mask")
-    def first(
-        group_key: ArrayType1D,
-        values: ArrayType1D,
-        ngroups: int,
-        mask: Optional[ArrayType1D] = None,
-        skip_na=True,
-    ):
-        if skip_na:
-            reduce_func_name = "first_skipna"
-        else:
-            reduce_func_name = "first"
-        del skip_na
-        return _group_func_wrap(**locals())
 
-    @staticmethod
-    @check_data_inputs_aligned("group_key", "values", "mask")
-    def last(
-        group_key: ArrayType1D,
-        values: ArrayType1D,
-        ngroups: int,
-        mask: Optional[ArrayType1D] = None,
-        skip_na=True,
-    ):
-        if skip_na:
-            reduce_func_name = "last_skipna"
-        else:
-            reduce_func_name = "last"
-        del skip_na
-        return _group_func_wrap(**locals())
+def group_last(
+    group_key: ArrayType1D,
+    values: ArrayType1D,
+    ngroups: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+):
+    return _group_func_wrap("last", **locals())
 
 
 def _wrap_numba(nb_func):
