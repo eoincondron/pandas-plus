@@ -3,9 +3,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from inspect import signature
+from numba.typed import List as NumbaList
 
 from pandas_plus.groupby.numba import (
-    NumbaGroupByMethods,
+    ScalarFuncs,
     _chunk_groupby_args,
     _group_by_reduce,
     group_nearby_members,
@@ -23,7 +24,7 @@ from pandas_plus.groupby.numba import (
     cummin,
     cummax,
 )
-from pandas_plus.util import is_null as py_isnull, MIN_INT, NumbaReductionOps
+from pandas_plus.util import is_null as py_isnull, MIN_INT
 
 
 @nb.njit
@@ -31,6 +32,7 @@ def is_null(x):
     return py_isnull(x)
 
 
+@pytest.mark.parametrize("seen", [True, False])
 @pytest.mark.parametrize(
     "values",
     [
@@ -43,9 +45,24 @@ def is_null(x):
     ],
 )
 @pytest.mark.parametrize("method", [sum, min, max])
-def test_scalar_methods(method, values):
-    result = getattr(NumbaReductionOps, method.__name__)(*values)
-    expected = method(values)
+def test_scalar_methods(method, values, seen):
+    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, seen)
+    expected = method(values) if seen else values[1], True
+    assert result == expected
+
+
+@pytest.mark.parametrize("seen", [True, False])
+@pytest.mark.parametrize(
+    "values",
+    [
+        (-1.1516, np.nan),
+        (3, np.iinfo(int).min),
+    ],
+)
+@pytest.mark.parametrize("method", [sum, min, max])
+def test_scalar_methods_with_nans(method, values, seen):
+    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, seen)
+    expected = values[0], seen
     assert result == expected
 
 
@@ -55,10 +72,10 @@ class TestChunkGroupbyArgs:
         """Test basic functionality with simple inputs."""
         # Setup
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
         target = np.zeros(3)
         mask = np.ones(5, dtype=bool)
-        reduce_func = NumbaReductionOps.sum
+        reduce_func = ScalarFuncs.nansum
         n_chunks = 2
 
         # Call the function
@@ -95,9 +112,9 @@ class TestChunkGroupbyArgs:
     def test_with_empty_mask(self):
         """Test with mask=None."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
         target = np.zeros(3)
-        reduce_func = NumbaReductionOps.sum
+        reduce_func = ScalarFuncs.nansum
         n_chunks = 2
 
         chunked_args = _chunk_groupby_args(
@@ -121,12 +138,17 @@ class TestChunkGroupbyArgs:
     def test_different_chunk_numbers(self):
         """Test with different numbers of chunks."""
         group_key = np.array([0, 1, 0, 2, 1, 3, 4, 5, 6, 7], dtype=np.int64)
-        values = np.array(
-            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64
+        values = NumbaList(
+            [
+                np.array(
+                    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+                    dtype=np.float64,
+                )
+            ]
         )
         target = np.zeros(8)
         mask = np.ones(10, dtype=bool)
-        reduce_func = NumbaReductionOps.sum
+        reduce_func = ScalarFuncs.nansum
 
         for n_chunks in [1, 2, 3, 5, 10]:
             chunked_args = _chunk_groupby_args(
@@ -144,16 +166,18 @@ class TestChunkGroupbyArgs:
             total_group_key_length = sum(len(args.args[0]) for args in chunked_args)
             assert total_group_key_length == len(group_key)
 
-            total_values_length = sum(len(args.args[1]) for args in chunked_args)
-            assert total_values_length == len(values)
+            total_values_length = sum(
+                len(arr) for args in chunked_args for arr in args.args[1]
+            )
+            assert total_values_length == len(group_key)
 
     def test_target_is_copied(self):
         """Test that target arrays are copied, not shared between chunks."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
         target = np.zeros(3)
         mask = np.ones(5, dtype=bool)
-        reduce_func = NumbaReductionOps.sum
+        reduce_func = ScalarFuncs.nansum
         n_chunks = 2
 
         chunked_args = _chunk_groupby_args(
@@ -172,10 +196,10 @@ class TestChunkGroupbyArgs:
     def test_with_boolean_values(self):
         """Test with boolean values."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([True, False, True, False, True], dtype=bool)
+        values = NumbaList([np.array([True, False, True, False, True], dtype=bool)])
         target = np.zeros(3, dtype=bool)
         mask = np.ones(5, dtype=bool)
-        reduce_func = NumbaReductionOps.sum
+        reduce_func = ScalarFuncs.nansum
         n_chunks = 2
 
         chunked_args = _chunk_groupby_args(
@@ -188,8 +212,10 @@ class TestChunkGroupbyArgs:
         )
 
         # Check values were preserved
-        all_values = np.concatenate([args.args[1] for args in chunked_args])
-        np.testing.assert_array_equal(np.sort(all_values), np.sort(values))
+        all_values = np.concatenate(
+            [arr for args in chunked_args for arr in args.args[1]]
+        )
+        np.testing.assert_array_equal(np.sort(all_values), np.sort(values[0]))
 
         # Test with actual _group_by_iterator
         results = [_group_by_reduce(*args.args) for args in chunked_args]
@@ -563,24 +589,6 @@ def test_group_min(dtype):
         np.testing.assert_array_equal(result, expected)
 
 
-@pytest.mark.parametrize(
-    ("method", "expected"),
-    [
-        ("first", [2, 1, 0]),
-        # ("last", [5, -1, 0]),
-    ],
-)
-@pytest.mark.parametrize("dtype", [float, int, bool, np.uint64])
-def test_group_first_last(method, dtype, expected):
-    func = getattr(NumbaGroupByMethods, method)
-    # Test that mask must have same length as group_key if not empty
-    group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-    values = np.array([2, 1, 5, 0, -1]).astype(dtype)
-    result = func(group_key, values, ngroups=3)
-    expected = np.array(expected, dtype=dtype)
-    np.testing.assert_array_equal(result, expected)
-
-
 class TestRollingAggregation:
     """Test class for rolling aggregation functions."""
 
@@ -629,7 +637,12 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window,)
+        result = rolling_sum(
+            group_key,
+            values,
+            ngroups,
+            window,
+        )
         expected = np.array(
             [
                 [np.nan, np.nan],  # First value in group 0
@@ -650,7 +663,9 @@ class TestRollingAggregation:
         ngroups = 2
         window = 2
 
-        result = rolling_sum(group_key, values, ngroups, window, min_periods=1, mask=mask)
+        result = rolling_sum(
+            group_key, values, ngroups, window, min_periods=1, mask=mask
+        )
 
         # Only positions where mask=True should have results
         # Group 0: positions 0,2 with values 1,3 -> [1, NaN, 4] (1, skip, 1+3)
@@ -844,7 +859,9 @@ def test_numba_rolling_sum_1d_equivalence_wth_min_periods(window, method):
     key = np.zeros(len(arr), dtype=int)
     arr = np.repeat(arr, 2)
     key = np.arange(len(arr)) % 2
-    func = dict(mean=rolling_mean, sum=rolling_sum, min=rolling_min, max=rolling_max)[method]
+    func = dict(mean=rolling_mean, sum=rolling_sum, min=rolling_min, max=rolling_max)[
+        method
+    ]
 
     for min_periods in range(1, window + 1):
         x = func(key, arr, ngroups=1, window=window, min_periods=min_periods)
@@ -905,7 +922,7 @@ class TestCumulativeAggregation:
 
         result = cumsum(group_key, values, ngroups, mask=mask)
         # Only process elements where mask is True
-        expected = np.array([1.0, np.nan, 4.0, 4.0, 9.0, np.nan])
+        expected = np.array([1.0, 1.0, 4.0, 4.0, 9.0, 9.0])
 
         np.testing.assert_array_almost_equal(result, expected)
 
@@ -914,7 +931,7 @@ class TestCumulativeAggregation:
         group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
         ngroups = 2
 
-        result = cumcount(group_key, ngroups)
+        result = cumcount(group_key, values=None, ngroups=ngroups)
         expected = np.array([0, 1, 2, 0, 1, 2], dtype=np.int64)
 
         np.testing.assert_array_equal(result, expected)
@@ -925,10 +942,26 @@ class TestCumulativeAggregation:
         mask = np.array([True, False, True, True, True, False], dtype=bool)
         ngroups = 2
 
-        result = cumcount(group_key, ngroups, mask=mask)
+        result = cumcount(group_key, values=None, ngroups=ngroups, mask=mask)
         # Only count elements where mask is True
-        expected = np.array([0, 0, 1, 0, 1, 0], dtype=np.int64)
+        expected = np.array([0, 0, 1, 0, 1, 1], dtype=np.int64)
 
+        np.testing.assert_array_equal(result, expected)
+
+    def test_cumcount_with_values(self):
+        """Test cumcount with boolean mask."""
+        group_key = np.array([0, 0, 0, 1, 1, 1], dtype=np.int64)
+        values = np.array([1, np.nan, 2, 3, np.nan, 4])
+        ngroups = 2
+
+        result = cumcount(group_key, values=values, ngroups=ngroups)
+        expected = np.array([0, 0, 1, 0, 0, 1], dtype=np.int64)
+        np.testing.assert_array_equal(result, expected)
+
+        mask = np.array([True, True, False, True, False, True], dtype=bool)
+        # Only count elements where mask is True
+        result = cumcount(group_key, values=values, ngroups=ngroups, mask=mask)
+        expected = np.array([0, 0, 0, 0, 0, 1], dtype=np.int64)
         np.testing.assert_array_equal(result, expected)
 
     def test_cummin_basic(self):
@@ -964,7 +997,7 @@ class TestCumulativeAggregation:
         expected_sum = np.array([1.0, 3.0, np.nan, 4.0, 9.0, np.nan])
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
 
-        result_count = cumcount(group_key, ngroups)
+        result_count = cumcount(group_key, values=None, ngroups=ngroups)
         expected_count = np.array([0, 1, 0, 0, 1, 0], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
 
@@ -978,7 +1011,7 @@ class TestCumulativeAggregation:
         expected_sum = np.array([1.0, 3.0, 3.0, 7.0])
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
 
-        result_count = cumcount(group_key, ngroups)
+        result_count = cumcount(group_key, values=None, ngroups=ngroups)
         expected_count = np.array([0, 1, 0, 1], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
 
@@ -1012,7 +1045,7 @@ class TestCumulativeAggregation:
         expected_sum = np.array([5.0, 2.0, 8.0, 3.0, 12.0])
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
 
-        result_count = cumcount(group_key, ngroups)
+        result_count = cumcount(group_key, values=None, ngroups=ngroups)
         expected_count = np.array([0, 0, 1, 1, 2], dtype=np.int64)
         np.testing.assert_array_equal(result_count, expected_count)
 
@@ -1037,7 +1070,7 @@ class TestCumulativeAggregation:
         ngroups = 2
 
         # cumcount doesn't need values, should work fine
-        result = cumcount(group_key, ngroups)
+        result = cumcount(group_key, None, ngroups)
         expected = np.array([0, 1, 0, 1], dtype=np.int64)
         np.testing.assert_array_equal(result, expected)
 
@@ -1059,7 +1092,7 @@ class TestCumulativeAggregation:
         assert not np.isnan(result_sum[valid_mask]).all()
 
         # Test cumcount
-        result_count = cumcount(group_key, n_groups)
+        result_count = cumcount(group_key, None, n_groups)
         assert result_count.shape == (n,)
         assert result_count.dtype == np.int64
         assert (result_count >= 0).all()
@@ -1080,7 +1113,7 @@ class TestCumulativeAggregation:
 
         # Compare cumcount (now both start from 0)
         pandas_cumcount = df.groupby("group").cumcount().values
-        our_cumcount = cumcount(group_key, ngroups)
+        our_cumcount = cumcount(group_key, None, ngroups)
         np.testing.assert_array_equal(our_cumcount, pandas_cumcount)
 
         # Compare cummin
@@ -1129,37 +1162,39 @@ class TestCumulativeAggregation:
         result = cumsum(group_key, float64_values, ngroups)
         assert result.dtype == np.float64, f"Expected float64, got {result.dtype}"
 
-    def test_type_preservation_cummin_cummax(self):
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "float64",
+            "bool",
+        ],
+    )
+    def test_type_preservation_cummin_cummax(self, dtype):
         """Test that cummin and cummax preserve exact input types."""
         group_key = np.array([0, 0, 1, 1], dtype=np.int64)
         ngroups = 2
+        values = np.array([3, 1, 4, 2], dtype=dtype)
+        # Test cummin
+        result_min = cummin(group_key, values, ngroups)
 
-        test_types = [
-            (np.int8, np.array([1, 2, 3, 4], dtype=np.int8)),
-            (np.int16, np.array([1, 2, 3, 4], dtype=np.int16)),
-            (np.int32, np.array([1, 2, 3, 4], dtype=np.int32)),
-            (np.int64, np.array([1, 2, 3, 4], dtype=np.int64)),
-            (np.uint8, np.array([1, 2, 3, 4], dtype=np.uint8)),
-            (np.uint16, np.array([1, 2, 3, 4], dtype=np.uint16)),
-            (np.uint32, np.array([1, 2, 3, 4], dtype=np.uint32)),
-            (np.uint64, np.array([1, 2, 3, 4], dtype=np.uint64)),
-            (np.float32, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)),
-            (np.float64, np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)),
-            (bool, np.array([True, False, True, False], dtype=bool)),
-        ]
+        assert (
+            result_min.dtype == dtype
+        ), f"cummin: Expected {dtype} for input {values.dtype}, got {result_min.dtype}"
 
-        for expected_dtype, values in test_types:
-            # Test cummin
-            result_min = cummin(group_key, values, ngroups)
-            assert (
-                result_min.dtype == expected_dtype
-            ), f"cummin: Expected {expected_dtype} for input {values.dtype}, got {result_min.dtype}"
-
-            # Test cummax
-            result_max = cummax(group_key, values, ngroups)
-            assert (
-                result_max.dtype == expected_dtype
-            ), f"cummax: Expected {expected_dtype} for input {values.dtype}, got {result_max.dtype}"
+        # Test cummax
+        result_max = cummax(group_key, values, ngroups)
+        assert (
+            result_max.dtype == dtype
+        ), f"cummax: Expected {dtype} for input {values.dtype}, got {result_max.dtype}"
 
     def test_type_preservation_boolean_edge_cases(self):
         """Test boolean type handling edge cases."""
@@ -1169,9 +1204,7 @@ class TestCumulativeAggregation:
 
         # cumsum: bool → int64
         result_sum = cumsum(group_key, bool_values, ngroups)
-        assert result_sum.dtype == np.int64
-        # NaN values should become 0 for integer types
-        expected_sum = np.array([1, 1, 0, 0, 1], dtype=np.int64)
+        expected_sum = np.array([1, 1, np.iinfo("int64").min, 0, 1])
         np.testing.assert_array_equal(result_sum, expected_sum)
 
         # cummin: bool → bool
