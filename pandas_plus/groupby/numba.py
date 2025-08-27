@@ -325,52 +325,6 @@ def find_last_n(
     return _find_first_or_last_n(group_key, ngroups, n, mask, forward=False)
 
 
-@nb.njit(nogil=True, fastmath=False)
-def _group_by_counter(
-    group_key: np.ndarray,
-    values: np.ndarray | None,
-    target: np.ndarray,
-    mask: Optional[np.ndarray] = None,
-):
-    masked = mask is not None
-    skip_na = values is None
-    for i in range(len(group_key)):
-        key = group_key[i]
-        if masked and not mask[i]:
-            continue
-        if not skip_na:
-            if is_null(values[i]):
-                continue
-        target[key] += 1
-    return target
-
-
-@nb.njit(nogil=True, fastmath=False)
-def _group_by_reduce(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    target: np.ndarray,
-    reduce_func: Callable,
-    mask: Optional[np.ndarray] = None,
-    skip_na: bool = True,
-):
-    masked = mask is not None
-    seen = np.full(len(target), False)
-    if skip_na:
-        for i in range(len(group_key)):
-            key = group_key[i]
-            val = values[i]
-            if (skip_na and is_null(val)) or (masked and not mask[i]):
-                continue
-
-            if seen[key]:
-                target[key] = reduce_func(target[key], val)
-            else:
-                target[key] = val
-                seen[key] = True
-
-    return target
-
 
 # ===== Group Aggregation Methods =====
 
