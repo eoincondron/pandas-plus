@@ -371,25 +371,6 @@ def _group_by_reduce(
     return target
 
 
-def _prepare_mask_for_numba(mask):
-    if mask is None:
-        mask = np.array([], dtype=bool)
-    else:
-        mask = np.asarray(mask)
-        if mask.dtype.kind != "b":
-            raise TypeError(f"mask must of Boolean type. Got {mask.dtype}")
-    return mask
-
-
-def _default_initial_value_for_type(arr):
-    if arr.dtype.kind == "b":
-        return False
-    else:
-        return _null_value_for_array_type(arr)
-
-
-
-
 @check_data_inputs_aligned("group_key", "values", "mask")
 def _group_func_wrap(
     reduce_func_name: str | None,
