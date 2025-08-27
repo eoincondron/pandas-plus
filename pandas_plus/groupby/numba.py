@@ -136,8 +136,7 @@ def _val_to_numpy(
         )
         if chunked and as_list:
             return NumbaList([chunk.to_numpy() for chunk in val.chunks])
-        else:
-            return val.to_numpy()
+
     try:
         val = val.to_numpy()  # type: ignore
     except AttributeError:
