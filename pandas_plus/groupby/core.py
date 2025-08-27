@@ -677,6 +677,68 @@ class GroupBy:
         return GroupBy.var(**locals()) ** 0.5
 
     @groupby_method
+    def first(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        transform: bool = False,
+        margins: bool = False,
+    ):
+        """
+        Get the first non-null value in each group. Use nth(0) for the first value including nulls.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to get the first value from, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before getting the first value.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            First value for each group.
+        """
+        return self._apply_gb_func(
+            "first", values=values, mask=mask, transform=transform, margins=margins
+        )
+
+    @groupby_method
+    def last(
+        self,
+        values: ArrayCollection,
+        mask: Optional[ArrayType1D] = None,
+        transform: bool = False,
+        margins: bool = False,
+    ):
+        """
+        Get the last non-null value in each group. Use nth(-1) for the last value including nulls.
+
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to get the last value from, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before getting the last value.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Last value for each group.
+        """
+        return self._apply_gb_func(
+            "last", values=values, mask=mask, transform=transform, margins=margins
+        )
+
+    @groupby_method
     def agg(
         self,
         values: ArrayCollection,

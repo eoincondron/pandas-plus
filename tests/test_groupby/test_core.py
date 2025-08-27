@@ -15,7 +15,7 @@ def assert_pd_equal(left, right, **kwargs):
 
 class TestGroupBy:
 
-    @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
+    @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "var", "std", "first", "last"])
     @pytest.mark.parametrize("key_dtype", [int, str, float, "float32", "category"])
     @pytest.mark.parametrize("key_type", [np.array, pd.Series, pl.Series])
     @pytest.mark.parametrize(
