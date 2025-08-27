@@ -18,6 +18,7 @@ from ..util import (
     _maybe_cast_timestamp_arr,
     parallel_map,
     NumbaReductionOps,
+    _scalar_func_decorator,
 )
 from .. import nanops
 
@@ -369,6 +370,75 @@ def _group_by_reduce(
                 seen[key] = True
 
     return target
+
+
+# ===== Group Aggregation Methods =====
+
+
+class ScalarFuncs:
+
+    @_scalar_func_decorator
+    def nansum(cur_sum, next_val, seen):
+        if is_null(next_val):
+            return cur_sum, seen
+        elif seen:
+            return cur_sum + next_val, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
+    def nanmax(cur_max, next_val, seen):
+        if is_null(next_val):
+            return cur_max, seen
+        elif seen:
+            if next_val > cur_max:
+                cur_max = next_val
+            return cur_max, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
+    def nanmin(cur_min, next_val, seen):
+        if is_null(next_val):
+            return cur_min, seen
+        elif seen:
+            if next_val < cur_min:
+                cur_min = next_val
+            return cur_min, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
+    def count(cur_count, next_val, seen):
+        if is_null(next_val):
+            return cur_count, seen
+        elif seen:
+            return cur_count + 1, True
+        else:
+            return 1, True
+
+    @_scalar_func_decorator
+    def size(cur_size, next_val, seen):
+        if seen:
+            return cur_size + 1, True
+        else:
+            return 1, True
+
+    @_scalar_func_decorator
+    def first(cur_first, next_val, seen):
+        if is_null(next_val):
+            return cur_first, seen
+        elif seen:
+            return cur_first, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
+    def last(cur_last, next_val, seen):
+        if is_null(next_val):
+            return cur_last, seen
+        else:
+            return next_val, True
 
 
 @check_data_inputs_aligned("group_key", "values", "mask")
