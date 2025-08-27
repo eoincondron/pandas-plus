@@ -25,6 +25,7 @@ from pandas_plus.groupby.numba import (
     cummax,
 )
 from pandas_plus.util import is_null as py_isnull, MIN_INT
+from pandas_plus.groupby import numba
 
 
 @nb.njit
@@ -1249,3 +1250,20 @@ class TestCumulativeAggregation:
 
         result_max = cummax(group_key, int32_values, ngroups, mask=mask)
         assert result_max.dtype == np.int32  # Preserve exact type
+
+
+@pytest.mark.parametrize("n_threads", [1, 2])
+@pytest.mark.parametrize("values", [
+    np.array([-1, 4, 3, -3, 1, 0], dtype=np.int64),
+    np.array([np.nan, 2.0, 3.0, 4.0, 5.0, np.nan], dtype=np.float64)
+])
+@pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "first", "last"])
+def test_group_by_methods_vs_pandas(method, values, n_threads):
+    func = getattr(numba, f"group_{method}")
+    group_key = np.array([0, 0, 0, 1, 1, 1] * n_threads, dtype=np.int64)
+    values = np.tile(values, n_threads)
+    ngroups = 2
+
+    result = func(group_key, values, ngroups, n_threads=n_threads)
+    expected = pd.Series(values).groupby(group_key).agg(method)
+    np.testing.assert_array_almost_equal(result, expected.values)
