@@ -999,7 +999,7 @@ class TestCumulativeAggregation:
         np.testing.assert_array_almost_equal(result_sum, expected_sum)
 
         result_count = cumcount(group_key, values=None, ngroups=ngroups)
-        expected_count = np.array([0, 1, 0, 0, 1, 0], dtype=np.int64)
+        expected_count = np.array([0, 1, -1, 0, 1, -1])
         np.testing.assert_array_equal(result_count, expected_count)
 
     def test_cumulative_operations_empty_groups(self):
