@@ -325,11 +325,17 @@ def find_last_n(
     return _find_first_or_last_n(**locals(), forward=False)
 
 
-
 # ===== Group Aggregation Methods =====
 
 
 class ScalarFuncs:
+
+    @_scalar_func_decorator
+    def sum(cur_sum, next_val, seen):
+        if seen:
+            return cur_sum + next_val, True
+        else:
+            return next_val, True
 
     @_scalar_func_decorator
     def nansum(cur_sum, next_val, seen):
@@ -341,11 +347,33 @@ class ScalarFuncs:
             return next_val, True
 
     @_scalar_func_decorator
+    def max(cur_max, next_val, seen):
+        if is_null(next_val):
+            return next_val, seen
+        elif seen:
+            if next_val > cur_max:
+                cur_max = next_val
+            return cur_max, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
     def nanmax(cur_max, next_val, seen):
         if is_null(next_val):
             return cur_max, seen
         elif seen:
             if next_val > cur_max:
+                cur_max = next_val
+            return cur_max, True
+        else:
+            return next_val, True
+
+    @_scalar_func_decorator
+    def min(cur_max, next_val, seen):
+        if is_null(next_val):
+            return next_val, seen
+        elif seen:
+            if next_val < cur_max:
                 cur_max = next_val
             return cur_max, True
         else:
@@ -1463,9 +1491,10 @@ def _apply_cumulative(
 
     # Map operation names to reduction functions
     try:
-        reduce_func = getattr(ScalarFuncs, operation)
+        name = "nan" + operation if (skip_na and operation != "count") else operation
+        reduce_func = getattr(ScalarFuncs, name)
     except AttributeError:
-        raise ValueError(f"Unsupported cumulative operation: {operation}")
+        raise ValueError(f"Unsupported cumulative operation: {name}")
 
     if values is None:
         raise ValueError(f"values cannot be None for operation '{operation}'")
@@ -1534,7 +1563,7 @@ def cumsum(
     >>> print(result)
     [1. 1. 4. 4. 9. 9.]
     """
-    return _apply_cumulative("nansum", **locals())
+    return _apply_cumulative("sum", **locals())
 
 
 def cumcount(
@@ -1636,7 +1665,7 @@ def cummin(
     >>> print(result)
     [3. 1. 1. 2. 2. 1.]
     """
-    return _apply_cumulative("nanmin", group_key, values, ngroups, mask, skip_na)
+    return _apply_cumulative("min", group_key, values, ngroups, mask, skip_na)
 
 
 def cummax(
@@ -1683,7 +1712,7 @@ def cummax(
     >>> print(result)
     [1. 3. 3. 4. 4. 5.]
     """
-    return _apply_cumulative("nanmax", group_key, values, ngroups, mask, skip_na)
+    return _apply_cumulative("max", group_key, values, ngroups, mask, skip_na)
 
 
 @nb.njit(nogil=True, fastmath=False)
