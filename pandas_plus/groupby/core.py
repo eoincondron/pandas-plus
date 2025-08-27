@@ -204,15 +204,15 @@ class GroupBy:
             Index with one level per group key
         """
         return self._result_index
-    
+
     @property
     def groups(self):
         """
         Dict mapping group names to row labels.
-        
+
         Uses optimized numba implementation for better performance with large
         datasets.
-        
+
         Returns
         -------
         dict
@@ -611,7 +611,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
-        ddof: int = 0
+        ddof: int = 0,
     ):
         """
         Calculate variance of values in each group.
@@ -636,7 +636,9 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(mask=mask, margins=margins, transform=transform)
-        sq_mean = self.mean({k: v ** 2 for k, v in zip(value_names, value_list)}, **kwargs)
+        sq_mean = self.mean(
+            {k: v**2 for k, v in zip(value_names, value_list)}, **kwargs
+        )
         if ddof:
             size = self.size(**kwargs)
             sq_mean *= size / (size + ddof)
@@ -655,7 +657,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
-        ddof: int = 0
+        ddof: int = 0,
     ):
         """
         Calculate standard deviation of values in each group.
@@ -678,7 +680,7 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Standard deviation of values for each group.
         """
-        return GroupBy.var(**locals()) ** .5
+        return GroupBy.var(**locals()) ** 0.5
 
     @groupby_method
     def agg(
@@ -753,7 +755,7 @@ class GroupBy:
         ----------
         values1 : ArrayCollection
             Numerator values for ratio calculation.
-        values2 : ArrayCollection  
+        values2 : ArrayCollection
             Denominator values for ratio calculation.
         mask : ArrayType1D, optional
             Boolean mask to filter values before calculating ratio.
@@ -870,7 +872,13 @@ class GroupBy:
 
         return density
 
-    def _get_row_selection(self, values: ArrayCollection, ilocs: np.ndarray, keep_input_index: bool = False, n: Optional[int] = None):
+    def _get_row_selection(
+        self,
+        values: ArrayCollection,
+        ilocs: np.ndarray,
+        keep_input_index: bool = False,
+        n: Optional[int] = None,
+    ):
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         common_index = _validate_input_lengths_and_indexes(value_list)
         keep = ilocs > -1
@@ -900,7 +908,9 @@ class GroupBy:
             return pd.Series(value_list[0][ilocs], out_index)
         else:
             return pd.DataFrame(
-                {k: v[ilocs] for k, v in zip(value_names, value_list)}, index=out_index, copy=False
+                {k: v[ilocs] for k, v in zip(value_names, value_list)},
+                index=out_index,
+                copy=False,
             )
 
     def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
@@ -914,7 +924,7 @@ class GroupBy:
         n : int
             Number of rows to select from the beginning of each group.
         keep_input_index : bool, default False
-            If True, preserve the original index of the input values, otherwise use the group keys. 
+            If True, preserve the original index of the input values, otherwise use the group keys.
 
         Returns
         -------
@@ -927,7 +937,9 @@ class GroupBy:
             n=n,
             forward=True,
         )
-        return self._get_row_selection(values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n)
+        return self._get_row_selection(
+            values=values, ilocs=ilocs, keep_input_index=keep_input_index, n=n
+        )
 
     def tail(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
         """
@@ -975,7 +987,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             The nth row from each group.
         """
-        ilocs = numba_funcs._find_nth(group_key=self.group_ikey, ngroups=self.ngroups, n=n)
+        ilocs = numba_funcs._find_nth(
+            group_key=self.group_ikey, ngroups=self.ngroups, n=n
+        )
         return self._get_row_selection(values, ilocs, keep_input_index, n=n)
 
     def _rolling_aggregate(
@@ -987,7 +1001,7 @@ class GroupBy:
     ):
         """
         Shared implementation for rolling aggregation methods.
-        
+
         Parameters
         ----------
         func_name : str
@@ -998,7 +1012,7 @@ class GroupBy:
             Size of the rolling window.
         mask : ArrayType1D, optional
             Boolean mask to filter values before calculation.
-            
+
         Returns
         -------
         pd.Series or pd.DataFrame
@@ -1006,10 +1020,10 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         np_values = list(map(val_to_numpy, value_list))
-        
+
         # Get the appropriate numba function
         rolling_func = getattr(numba_funcs, func_name)
-        
+
         results = [
             rolling_func(
                 group_key=self.group_ikey,
@@ -1020,11 +1034,11 @@ class GroupBy:
             )
             for v in np_values
         ]
-        
+
         out_dict = {}
         for key, result in zip(value_names, results):
             out_dict[key] = pd.Series(result, common_index)
-        
+
         return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
         out = pd.DataFrame(out_dict)
         if return_1d:
@@ -1146,7 +1160,7 @@ class GroupBy:
     ):
         """
         Shared implementation for cumulative aggregation methods.
-        
+
         Parameters
         ----------
         func_name : str
@@ -1157,7 +1171,7 @@ class GroupBy:
             Boolean mask to filter values before calculation.
         skip_na : bool, default True
             Whether to skip NA/null values in the calculation.
-            
+
         Returns
         -------
         pd.Series or pd.DataFrame
@@ -1167,7 +1181,7 @@ class GroupBy:
 
         # Get the appropriate numba function
         cumulative_func = getattr(numba_funcs, func_name)
-        
+
         results = [
             cumulative_func(
                 group_key=self.group_ikey,
@@ -1178,11 +1192,11 @@ class GroupBy:
             )
             for v in value_list
         ]
-        
+
         out_dict = {}
         for key, result in zip(value_names, results):
             out_dict[key] = pd.Series(result, common_index)
-        
+
         return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
         out = pd.DataFrame(out_dict, copy=False)
         if return_1d:
@@ -1239,17 +1253,24 @@ class GroupBy:
         if mask is not None:
             # Validate mask has same length as group_ikey
             if len(mask) != len(self.group_ikey):
-                raise ValueError(f"Mask length {len(mask)} doesn't match group key length {len(self.group_ikey)}")
-        
+                raise ValueError(
+                    f"Mask length {len(mask)} doesn't match group key length {len(self.group_ikey)}"
+                )
+
         result = numba_funcs.cumcount(
             group_key=self.group_ikey,
+            values=values,
             ngroups=self.ngroups,
             mask=mask,
         )
-        
+
         # Create index - use _key_index if available, otherwise RangeIndex
-        index = self._key_index if self._key_index is not None else pd.RangeIndex(len(result))
-        return pd.Series(result, index=index, name="cumcount")
+        index = (
+            self._key_index
+            if self._key_index is not None
+            else pd.RangeIndex(len(result))
+        )
+        return pd.Series(result, index=index)
 
     @groupby_method
     def cummin(
@@ -1326,10 +1347,10 @@ class GroupBy:
         -------
         pd.Series or pd.DataFrame
             Shifted values for each group, same shape as input.
-            
+
         Notes
         -----
-        Currently only supports periods=1. Multi-period shifting will be 
+        Currently only supports periods=1. Multi-period shifting will be
         added in a future version.
 
         Examples
@@ -1352,10 +1373,10 @@ class GroupBy:
             raise NotImplementedError(
                 f"periods={periods} not supported. Currently only periods=1 is supported."
             )
-            
+
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         np_values = list(map(val_to_numpy, value_list))
-        
+
         results = [
             numba_funcs.group_shift(
                 group_key=self.group_ikey,
@@ -1365,11 +1386,11 @@ class GroupBy:
             )
             for v in np_values
         ]
-        
+
         out_dict = {}
         for key, result in zip(value_names, results):
             out_dict[key] = pd.Series(result, common_index)
-        
+
         return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
         out = pd.DataFrame(out_dict, copy=False)
         if return_1d:
@@ -1401,10 +1422,10 @@ class GroupBy:
         -------
         pd.Series or pd.DataFrame
             First differences for each group, same shape as input.
-            
+
         Notes
         -----
-        Currently only supports periods=1. Multi-period differences will be 
+        Currently only supports periods=1. Multi-period differences will be
         added in a future version.
 
         Examples
@@ -1427,10 +1448,10 @@ class GroupBy:
             raise NotImplementedError(
                 f"periods={periods} not supported. Currently only periods=1 is supported."
             )
-            
+
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         np_values = list(map(val_to_numpy, value_list))
-        
+
         results = [
             numba_funcs.group_diff(
                 group_key=self.group_ikey,
@@ -1440,11 +1461,11 @@ class GroupBy:
             )
             for v in np_values
         ]
-        
+
         out_dict = {}
         for key, result in zip(value_names, results):
             out_dict[key] = pd.Series(result, common_index)
-        
+
         return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
         out = pd.DataFrame(out_dict, copy=False)
         if return_1d:
@@ -1481,7 +1502,7 @@ def pivot_table(
     values: ArrayCollection,
     agg_func: str = "sum",
     mask: Optional[ArrayType1D] = None,
-    margins: Literal[True, False, "row", "column"] = False
+    margins: Literal[True, False, "row", "column"] = False,
 ):
     """
     Perform a cross-tabulation of the group keys and values.
@@ -1613,7 +1634,7 @@ def add_row_margin(
         keep.loc[summary.index] = True
 
     for lvl in set(all_levels) - set(levels):
-        out.drop('All', level=lvl, inplace=True)
+        out.drop("All", level=lvl, inplace=True)
 
     return out[keep]
 
