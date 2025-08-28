@@ -1387,7 +1387,87 @@ def rolling_max(
     np.ndarray
         Rolling maximums with same shape as values
     """
-    return _apply_rolling("max", **locals())
+
+
+@nb.njit(nogil=True, fastmath=False)
+def _rolling_shift_or_diff_1d(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+    null_value: float | np.timedelta64 | int = np.nan,
+    want_shift: bool = True,
+):
+    """
+    Optimized core numba function for rolling max/min on 1D values.
+
+    Uses position tracking to avoid scanning entire window on each update.
+    Only recomputes min when the current minimum falls out of the window.
+    """
+    out = np.full(len(group_key), null_value)
+    masked = mask is not None
+
+    # Track rolling sums and circular buffers for each group
+    group_buffers = np.full((ngroups, window), null_value)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.int64)
+
+    i = -1
+    for arr in values:
+        for val in arr:
+            i += 1
+            key = group_key[i]
+
+            if key < 0:  # Skip null keys
+                continue
+
+            if masked and not mask[i]:
+                continue
+
+            # Get current position in circular buffer for this group and add new val
+            pos = group_buffer_pos[key]
+            if want_shift:
+                out[i] = group_buffers[key, pos]
+            else:
+                out[i] = val - group_buffers[key, pos]
+
+            group_buffers[key, pos] = val
+
+            # Update position
+            group_buffer_pos[key] = (pos + 1) % window
+
+    return out
+
+
+def rolling_shift(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    np_type = _val_to_numpy(values, as_list=True)[0].dtype
+    null_value = _null_value_for_numpy_type(np_type)
+    if np_type.kind in "ui":
+        null_value = np.nan
+    return _apply_rolling("shift", want_shift=True, **locals())
+
+
+def rolling_diff(
+    group_key: np.ndarray,
+    values: np.ndarray,
+    ngroups: int,
+    window: int,
+    mask: Optional[np.ndarray] = None,
+):
+    np_type = _val_to_numpy(values, as_list=True)[0].dtype
+    null_value = _null_value_for_numpy_type(np_type)
+    if values.dtype.kind == "M":
+        null_value = np.timedelta64("NaT", "ns")
+    elif np_type.kind in "ui":
+        # TODO: allow users not to downcast here
+        null_value = np.nan
+    return _apply_rolling("diff", want_shift=False, **locals())
 
 
 # ================================
