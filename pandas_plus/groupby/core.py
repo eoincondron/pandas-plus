@@ -636,13 +636,15 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(mask=mask, margins=margins, transform=transform)
-        sq_sum = self.sum({k: v**2 for k, v in zip(value_names, value_list)}, **kwargs).astype(float)
+        sq_sum = self.sum(
+            {k: v**2 for k, v in zip(value_names, value_list)}, **kwargs
+        ).astype(float)
         sum_sq = self.sum(values=values, **kwargs).astype(float) ** 2
         if sum_sq.ndim == 1:  # sq_sum is always DataFrame since we are passing a dict
             sq_sum = sq_sum.squeeze(axis=1)
 
         count = self.count(values=values, **kwargs)
-        return (sq_sum -  sum_sq / count) / (count - ddof)
+        return (sq_sum - sum_sq / count) / (count - ddof)
 
     @groupby_method
     def std(
