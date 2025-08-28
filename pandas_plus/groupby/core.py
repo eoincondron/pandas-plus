@@ -205,7 +205,7 @@ class GroupBy:
         """
         return self._result_index
 
-    @property
+    @cached_property
     def groups(self):
         """
         Dict mapping group names to row labels.
@@ -636,8 +636,8 @@ class GroupBy:
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(mask=mask, margins=margins, transform=transform)
-        sq_sum = self.sum({k: v**2 for k, v in zip(value_names, value_list)}, **kwargs)
-        sum_sq = self.sum(values=values, **kwargs) ** 2
+        sq_sum = self.sum({k: v**2 for k, v in zip(value_names, value_list)}, **kwargs).astype(float)
+        sum_sq = self.sum(values=values, **kwargs).astype(float) ** 2
         if sum_sq.ndim == 1:  # sq_sum is always DataFrame since we are passing a dict
             sq_sum = sq_sum.squeeze(axis=1)
 

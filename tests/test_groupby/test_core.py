@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import polars as pl
 import pytest
 
@@ -395,10 +396,10 @@ class TestGroupByRowSelection:
         """Test head method with keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.head(values, n=n, keep_input_index=True)
-        
+
         # Compare with pandas groupby (which keeps original index by default)
         expected = values.groupby(key).head(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
@@ -408,10 +409,10 @@ class TestGroupByRowSelection:
         """Test head method with DataFrame and keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["df_values"]
-        
+
         gb = GroupBy(key)
         result = gb.head(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).head(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
@@ -421,10 +422,10 @@ class TestGroupByRowSelection:
         """Test tail method with keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).tail(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
@@ -433,10 +434,10 @@ class TestGroupByRowSelection:
         """Test tail method with DataFrame and keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["df_values"]
-        
+
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).tail(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
@@ -446,10 +447,10 @@ class TestGroupByRowSelection:
         """Test nth method with keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.nth(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).nth(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
@@ -458,10 +459,10 @@ class TestGroupByRowSelection:
         """Test nth method with DataFrame and keep_input_index=True."""
         key = sample_data["key"]
         values = sample_data["df_values"]
-        
+
         gb = GroupBy(key)
         result = gb.nth(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).nth(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
@@ -471,10 +472,10 @@ class TestGroupByRowSelection:
         """Test edge cases for head method."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.head(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).head(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
@@ -483,10 +484,10 @@ class TestGroupByRowSelection:
         """Test edge cases for tail method."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
-        
+
         expected = values.groupby(key).tail(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
@@ -495,26 +496,26 @@ class TestGroupByRowSelection:
         """Test nth method with out-of-bounds indices."""
         key = sample_data["key"]
         values = sample_data["values"]
-        
+
         gb = GroupBy(key)
         result = gb.nth(values, n=n, keep_input_index=True)
-        
+
         # Should return empty or NaN values for out of bounds
         expected = values.groupby(key).nth(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
-    # Test with different input types  
+    # Test with different input types
     def test_head_input_types(self, sample_data):
         """Test head method with numpy array input."""
         key = sample_data["key"]
         values_orig = sample_data["values"]
-        
+
         # Test with numpy array (this works)
         values = values_orig.values
-        
+
         gb = GroupBy(key)
         result = gb.head(values, n=2, keep_input_index=True)
-        
+
         # Expected should always match pandas behavior
         expected = values_orig.groupby(key).head(2)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
@@ -523,13 +524,13 @@ class TestGroupByRowSelection:
         """Test with numpy array key types."""
         key_orig = sample_data["key"]
         values = sample_data["values"]
-        
+
         # Test with numpy array (this works)
         key = key_orig.values
-        
+
         gb = GroupBy(key)
         result = gb.head(values, n=2, keep_input_index=True)
-        
+
         expected = values.groupby(key_orig).head(2)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
@@ -538,19 +539,19 @@ class TestGroupByRowSelection:
         # Empty data
         key = pd.Series([], dtype=str)
         values = pd.Series([], dtype=int)
-        
+
         gb = GroupBy(key)
-        
+
         # Test head
         result = gb.head(values, n=2, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
-        
+
         # Test tail
         result = gb.tail(values, n=2, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
-        
+
         # Test nth
         result = gb.nth(values, n=0, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
@@ -560,19 +561,19 @@ class TestGroupByRowSelection:
         """Test with data that has only one group."""
         key = pd.Series(["A"] * 5)
         values = pd.Series([1, 2, 3, 4, 5])
-        
+
         gb = GroupBy(key)
-        
+
         # Test head
         result = gb.head(values, n=3, keep_input_index=True)
         expected = values.groupby(key).head(3)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
-        
-        # Test tail  
+
+        # Test tail
         result = gb.tail(values, n=3, keep_input_index=True)
         expected = values.groupby(key).tail(3)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
-        
+
         # Test nth
         result = gb.nth(values, n=1, keep_input_index=True)
         expected = values.groupby(key).nth(1)
@@ -582,15 +583,57 @@ class TestGroupByRowSelection:
         """Test with n larger than group sizes."""
         key = pd.Series(["A", "A", "B", "C"])
         values = pd.Series([1, 2, 3, 4])
-        
+
         gb = GroupBy(key)
-        
+
         # Test head with large n
         result = gb.head(values, n=10, keep_input_index=True)
         expected = values.groupby(key).head(10)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
-        
+
         # Test tail with large n
         result = gb.tail(values, n=10, keep_input_index=True)
         expected = values.groupby(key).tail(10)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
+
+
+@pytest.fixture(scope="module")
+def df_chunked(tmpdir_factory):
+    tmpdir = tmpdir_factory.mktemp("test")
+    N = 1_000_000
+    a = np.arange(N)
+    df = pd.DataFrame(
+        dict(
+            ints=a,
+            cat=pd.Categorical.from_codes(a % 6, list("qwerty")),
+            floats=np.random.rand(N),
+            bools=a % 3 == 0,
+            # times=pd.Timestamp("20250101") + a.astype("m8[ns]"),
+            timedeltas=a.astype("m8[ns]"),
+        )
+    )
+    # df["floats"] = df["floats"].where(df.floats > df.floats.median())  # add NaNs
+    files = [tmpdir.join("df1.parquet"), tmpdir.join("df2.parquet")]
+    for file in files:
+        df.to_parquet(file)
+
+    df_chunked = pd.read_parquet(files, dtype_backend="pyarrow")
+
+    assert isinstance(pa.Array.from_pandas(df_chunked.ints), pa.ChunkedArray)
+
+    return df_chunked
+
+
+@pytest.mark.parametrize(
+    "method", ["sum", "mean", "min", "max", "var", "first", "cumsum", "cummin"]
+)
+def test_group_by_methods_vs_pandas_with_chunked_arrays(df_chunked, method):
+    cols = ["ints"]
+    gb = df_chunked.groupby("cat", sort=False, observed=True)
+    pd_version = getattr(gb[cols], method)()
+    pp_version = getattr(GroupBy, method)(
+        df_chunked.cat, df_chunked[cols],
+    )
+    breakpoint()
+    expected = pd_version.set_index(pd_version.index.astype(str))
+    pd.testing.assert_frame_equal(pp_version, expected, check_dtype=False)
