@@ -707,6 +707,7 @@ def _apply_rolling_1d_to_2d(
     min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
     n_threads: int = 1,
+    **kwargs,
 ):
     """
     General wrapper for applying a 1D rolling function to 2D values.
@@ -745,6 +746,7 @@ def _apply_rolling_1d_to_2d(
         window=window,
         min_periods=min_periods,
         mask=mask,
+        **kwargs,
     )
 
     if n_threads == 1 or n_cols == 1:
@@ -780,6 +782,7 @@ def _apply_rolling(
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    **kwargs,
 ):
     """
     General dispatcher for rolling operations that handles 1D vs 2D cases.
@@ -816,14 +819,14 @@ def _apply_rolling(
     ValueError
         If operation is not supported or values are not 1D/2D
     """
-    kwargs = locals().copy()
-    del kwargs["operation"]
     # Map operation names to 1D functions
     rolling_1d_funcs = {
-        "sum": _rolling_sum_1d,
-        "mean": _rolling_mean_1d,
-        "min": _rolling_min_1d,
-        "max": _rolling_max_1d,
+        "sum": _rolling_sum_or_mean_1d,
+        "mean": _rolling_sum_or_mean_1d,
+        "min": _rolling_max_or_min_1d,
+        "max": _rolling_max_or_min_1d,
+        "shift": _rolling_shift_or_diff_1d,
+        "diff": _rolling_shift_or_diff_1d,
     }
 
     if operation not in rolling_1d_funcs:
@@ -836,13 +839,15 @@ def _apply_rolling(
         mask = _val_to_numpy(mask)
 
     rolling_1d_func = rolling_1d_funcs[operation]
+    kwargs = kwargs | locals()
+    kwargs = {k: kwargs[k] for k in signature(rolling_1d_func).parameters}
 
     if values.ndim == 1:
-        del kwargs["n_threads"]
-        kwargs["values"] = _val_to_numpy(values, as_list=True)
+        if not isinstance(values, list):
+            kwargs["values"] = _val_to_numpy(values, as_list=True)
         return rolling_1d_func(**kwargs)
     elif values.ndim == 2:
-        return _apply_rolling_1d_to_2d(rolling_1d_func, **kwargs)
+        return _apply_rolling_1d_to_2d(rolling_1d_func, **kwargs, n_threads=n_threads)
     else:
         raise ValueError(f"values must be 1D or 2D got {values.ndim}D")
 
@@ -855,7 +860,7 @@ def _rolling_sum_or_mean_1d(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
-    mean: bool = False,
+    want_mean: bool = False,
 ):
     """
     Core numba function for rolling sum on 1D values.
@@ -929,37 +934,12 @@ def _rolling_sum_or_mean_1d(
                 group_n_seen[key] += 1
 
             if group_non_null[key] >= min_periods:
-                if mean:
+                if want_mean:
                     out[i] = group_sums[key] / group_non_null[key]
                 else:
                     out[i] = group_sums[key]
 
     return out
-
-
-def _rolling_sum_1d(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    return _rolling_sum_or_mean_1d(
-        **locals(),
-        mean=False,
-    )
-
-
-def _rolling_mean_1d(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    return _rolling_sum_or_mean_1d(**locals(), mean=True)
 
 
 def rolling_sum(
@@ -1028,7 +1008,7 @@ def rolling_sum(
      [  9.  90.]
      [ 11. 110.]]
     """
-    return _apply_rolling("sum", **locals())
+    return _apply_rolling("sum", want_mean=False, **locals())
 
 
 def rolling_mean(
@@ -1063,7 +1043,7 @@ def rolling_mean(
     np.ndarray
         Rolling means with same shape as values
     """
-    return _apply_rolling("mean", **locals())
+    return _apply_rolling("mean", want_mean=True, **locals())
 
 
 @nb.njit(nogil=True)
@@ -1082,7 +1062,7 @@ def min_or_max_and_position(arr, want_max: bool = True):
 
 
 @nb.njit(nogil=True, fastmath=False)
-def _rolling_max_min_1d(
+def _rolling_max_or_min_1d(
     group_key: np.ndarray,
     values: np.ndarray,
     ngroups: int,
@@ -1170,40 +1150,6 @@ def _rolling_max_min_1d(
     return out
 
 
-def _rolling_min_1d(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    """
-    Optimized core numba function for rolling min on 1D values.
-
-    Uses position tracking to avoid scanning entire window on each update.
-    Only recomputes min when the current minimum falls out of the window.
-    """
-    return _rolling_max_min_1d(**locals(), want_max=False)
-
-
-def _rolling_max_1d(
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-):
-    """
-    Optimized core numba function for rolling max on 1D values.
-
-    Uses position tracking to avoid scanning entire window on each update.
-    Only recomputes max when the current maximum falls out of the window.
-    """
-    return _rolling_max_min_1d(**locals(), want_max=True)
-
-
 def rolling_min(
     group_key: ArrayType1D,
     values: ArrayType1D | np.ndarray,
@@ -1234,7 +1180,7 @@ def rolling_min(
     np.ndarray
         Rolling minimums with same shape as values
     """
-    return _apply_rolling("min", **locals())
+    return _apply_rolling("min", want_max=False, **locals())
 
 
 def rolling_max(
@@ -1267,6 +1213,7 @@ def rolling_max(
     np.ndarray
         Rolling maximums with same shape as values
     """
+    return _apply_rolling("max", want_max=True, **locals())
 
 
 @nb.njit(nogil=True, fastmath=False)
