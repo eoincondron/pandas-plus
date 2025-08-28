@@ -1421,6 +1421,9 @@ def _apply_cumulative(
         raise ValueError(f"values cannot be None for operation '{operation}'")
 
     values = _val_to_numpy(values, as_list=True)
+    values, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, values)))
+    values = list(values)
+    orig_type = orig_types[0]
     target = _build_target_for_groupby(values[0].dtype, operation, len(group_key))
     result, has_null_keys = _cumulative_reduce(
         group_key=group_key,
@@ -1436,6 +1439,9 @@ def _apply_cumulative(
         else:
             na_rep = _null_value_for_numpy_type(result.dtype)
         result[np.asarray(group_key) < 0] = na_rep
+
+    elif orig_type.kind in "mM":
+        result = result.astype(orig_type)
 
     return result
 

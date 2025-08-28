@@ -112,9 +112,9 @@ def _null_value_for_numpy_type(np_type: np.dtype):
         case "u":
             return np.iinfo(np_type).max
         case "m":
-            return np.timedelta64("NaT")
+            return np.timedelta64("NaT", "ns")
         case "M":
-            return np.datetime64("NaT")
+            return np.datetime64("NaT", "ns")
         case "b":
             return False
         case _:
