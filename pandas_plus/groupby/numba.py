@@ -1082,14 +1082,15 @@ def _rolling_max_or_min_1d(
 
     out = np.full(len(group_key), np.nan)
     masked = mask is not None
+    want_min = not want_max
 
-    # Track rolling sums and circular buffers for each group
-    group_current = np.full(ngroups, 0.0)
-    group_cur_positions = np.zeros(ngroups, dtype=np.int64)
+    # Track rolling max/min and its position in circular buffers for each group
+    current_best = np.full(ngroups, -np.inf if want_max else np.inf)
+    pos_of_current_best = np.zeros(ngroups, dtype=np.uint8)
     group_buffers = np.full((ngroups, window), np.nan)
-    group_buffer_pos = np.zeros(ngroups, dtype=np.int64)
-    group_non_null = np.zeros(ngroups, dtype=np.int64)
-    group_n_seen = np.zeros(ngroups, dtype=np.int64)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.uint8)
+    group_non_null = np.zeros(ngroups, dtype=np.uint8)
+    group_n_seen = np.zeros(ngroups, dtype=np.uint8)
 
     i = -1
     for arr in values:
@@ -1107,10 +1108,10 @@ def _rolling_max_or_min_1d(
 
             # Get current position in circular buffer for this group
             pos = group_buffer_pos[key]
-            cur_pos = group_cur_positions[key]
-            cur_best = group_current[key]
+            cur_best = current_best[key]
 
-            need_recalc = pos == cur_pos
+            need_recalc = pos == pos_of_current_best[key]
+            need_recalc = True
 
             n_seen = group_n_seen[key]
             group_full = n_seen >= window
@@ -1125,27 +1126,31 @@ def _rolling_max_or_min_1d(
                 if (
                     group_non_null[key] == 0
                     or (want_max and val >= cur_best)
-                    or (not want_max and val <= cur_best)
+                    or (want_min and val <= cur_best)
                 ):
-                    group_current[key] = val
-                    group_cur_positions[key] = pos
+                    current_best[key] = val
+                    pos_of_current_best[key] = pos
                     need_recalc = False
                 group_non_null[key] += 1
 
             if group_full and need_recalc:
                 # Recompute max from remaining window
                 window_vals = group_buffers[key]
-                window_best, cur_pos = min_or_max_and_position(window_vals, want_max)
-                group_current[key] = window_best
-                group_cur_positions[key] = cur_pos
+                window_best, pos_of_best = min_or_max_and_position(
+                    window_vals, want_max
+                )
+                current_best[key] = window_best
+                pos_of_current_best[key] = (pos_of_best - pos) % window
 
             # Update position and count
-            group_buffer_pos[key] = (pos + 1) % window
+            new_position = (pos + 1) % window
+            group_buffer_pos[key] = new_position
+
             if not group_full:
                 group_n_seen[key] += 1
 
             if group_non_null[key] >= min_periods:
-                out[i] = group_current[key]
+                out[i] = current_best[key]
 
     return out
 
