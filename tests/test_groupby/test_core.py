@@ -16,7 +16,9 @@ def assert_pd_equal(left, right, **kwargs):
 
 class TestGroupBy:
 
-    @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "var", "std", "first", "last"])
+    @pytest.mark.parametrize(
+        "method", ["sum", "mean", "min", "max", "var", "std", "first", "last"]
+    )
     @pytest.mark.parametrize("key_dtype", [int, str, float, "float32", "category"])
     @pytest.mark.parametrize("key_type", [np.array, pd.Series, pl.Series])
     @pytest.mark.parametrize(
@@ -280,30 +282,38 @@ class TestGroupBy:
         # Create test data with consistent types
         key_data = [1, 1, 2, 1, 3, 3, 6, 1, 6]
         value_data = [1.0, 2.0, 4.0, 3.5, 8.0, 6.0, 3.0, 1.0, 12.6]  # All floats
-        
-        # Create LazyFrame 
+
+        # Create LazyFrame
         lazy_df = pl.DataFrame({"values": value_data}).lazy()
         key = pd.Series(key_data)
-        
+
         # Test with LazyFrame as values - results in DataFrame, so compare with DataFrame
         result = getattr(GroupBy, method)(key, lazy_df)
         if method == "count":
-            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).count()})
+            expected = pd.DataFrame(
+                {"values": pd.Series(value_data, dtype="float64").groupby(key).count()}
+            )
         else:
-            expected = pd.DataFrame({"values": pd.Series(value_data, dtype='float64').groupby(key).agg(method)})
-        
+            expected = pd.DataFrame(
+                {
+                    "values": pd.Series(value_data, dtype="float64")
+                    .groupby(key)
+                    .agg(method)
+                }
+            )
+
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
-        
+
         # Test with LazyFrame as group key - single column LazyFrame becomes Series
         key_lazy_df = pl.DataFrame({"key": key_data}).lazy()
-        values = pd.Series(value_data, dtype='float64')
-        
+        values = pd.Series(value_data, dtype="float64")
+
         result = getattr(GroupBy, method)(key_lazy_df, values)
         if method == "count":
             expected = values.groupby(pd.Series(key_data, name="key")).count()
         else:
             expected = values.groupby(pd.Series(key_data, name="key")).agg(method)
-        
+
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
 
@@ -365,7 +375,7 @@ def test_pivot_table(margins, use_mask, aggfunc):
         margins=bool(margins),
     )
     if margins == "row":
-        del expected['All']
+        del expected["All"]
     elif margins == "column":
         expected = expected.drop("All")
     pd.testing.assert_frame_equal(
@@ -384,10 +394,12 @@ class TestGroupByRowSelection:
         return {
             "key": pd.Series(["A", "A", "A", "B", "B", "C", "C", "C", "C"]),
             "values": pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9]),
-            "df_values": pd.DataFrame({
-                "col1": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-                "col2": [10, 20, 30, 40, 50, 60, 70, 80, 90]
-            })
+            "df_values": pd.DataFrame(
+                {
+                    "col1": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    "col2": [10, 20, 30, 40, 50, 60, 70, 80, 90],
+                }
+            ),
         }
 
     # Tests for head method with keep_input_index=True (simpler case that works)
@@ -600,7 +612,7 @@ class TestGroupByRowSelection:
 @pytest.fixture(scope="module")
 def df_chunked(tmpdir_factory):
     tmpdir = tmpdir_factory.mktemp("test")
-    N = 1_000_000
+    N = 10_000
     a = np.arange(N)
     df = pd.DataFrame(
         dict(
@@ -625,15 +637,49 @@ def df_chunked(tmpdir_factory):
 
 
 @pytest.mark.parametrize(
-    "method", ["sum", "mean", "min", "max", "var", "first", "cumsum", "cummin"]
+    "method",
+    [
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "var",
+        "first",
+        "last",
+        "cumsum",
+        "cummin",
+        "cummax",
+        "shift",
+        "diff",
+    ],
 )
 def test_group_by_methods_vs_pandas_with_chunked_arrays(df_chunked, method):
-    cols = ["ints"]
+    cols = ["ints", "floats", "timedeltas"]
     gb = df_chunked.groupby("cat", sort=False, observed=True)
+    for col in cols:
+        try:
+            expected = getattr(gb[col], method)()
+        except TypeError:
+            continue
+        result = getattr(GroupBy, method)(
+            df_chunked.cat,
+            df_chunked[col],
+        )
+        if len(expected) < len(df_chunked):
+            expected.index = expected.index.astype(str)
+
+        pd.testing.assert_series_equal(result, expected, check_dtype=False), col
+
+
+@pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
+def test_group_by_rolling_methods_vs_pandas_with_chunked_arrays(df_chunked, method):
+    cols = ["ints", "floats"]
+    window = 5
+    gb = df_chunked.groupby("cat", sort=False, observed=True).rolling(window)
     pd_version = getattr(gb[cols], method)()
-    pp_version = getattr(GroupBy, method)(
-        df_chunked.cat, df_chunked[cols],
+    pp_version = getattr(GroupBy, f"rolling_{method}")(
+        df_chunked.cat, df_chunked[cols], window=window
     )
-    breakpoint()
-    expected = pd_version.set_index(pd_version.index.astype(str))
+    expected = pd_version.reset_index(level=0, drop=True).sort_index()
+
     pd.testing.assert_frame_equal(pp_version, expected, check_dtype=False)

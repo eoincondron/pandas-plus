@@ -854,7 +854,7 @@ class TestRollingAggregation:
 
 @pytest.mark.parametrize("window", [1, 2, 5, 8])
 @pytest.mark.parametrize("method", ["mean", "sum", "min", "max"])
-def test_numba_rolling_sum_1d_equivalence_wth_min_periods(window, method):
+def test_numba_rolling_agg_1d_equivalence_wth_min_periods(window, method):
     """Test equivalence of numba_rolling_sum_1d with pandas rolling sum."""
     arr = np.array([1, np.nan, -2, 3, np.nan, 4, 5, np.nan])
     key = np.zeros(len(arr), dtype=int)
