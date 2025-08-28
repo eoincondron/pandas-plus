@@ -1383,7 +1383,7 @@ class GroupBy:
     def shift(
         self,
         values: ArrayCollection,
-        periods: int = 1,
+        window: int = 1,
         mask: Optional[ArrayType1D] = None,
     ):
         """
@@ -1424,41 +1424,17 @@ class GroupBy:
         3    3.0
         Name: values, dtype: float64
         """
-        if periods != 1:
-            raise NotImplementedError(
-                f"periods={periods} not supported. Currently only periods=1 is supported."
-            )
+        return self._rolling_aggregate(
+            "rolling_shift", values=values, window=window, mask=mask
+        )
 
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        np_values = list(map(val_to_numpy, value_list))
-
-        results = [
-            numba_funcs.group_shift(
-                group_key=self.group_ikey,
-                values=v,
-                ngroups=self.ngroups,
-                mask=mask,
-            )
-            for v in np_values
-        ]
-
-        out_dict = {}
-        for key, result in zip(value_names, results):
-            out_dict[key] = pd.Series(result, common_index)
-
-        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
-        out = pd.DataFrame(out_dict, copy=False)
-        if return_1d:
-            out = out.squeeze(axis=1)
-            if get_array_name(values) is None:
-                out.name = None
-        return out
+    rolling_shift = shift
 
     @groupby_method
     def diff(
         self,
         values: ArrayCollection,
-        periods: int = 1,
+        window: int = 1,
         mask: Optional[ArrayType1D] = None,
     ):
         """
@@ -1499,35 +1475,11 @@ class GroupBy:
         3    4.0
         Name: values, dtype: float64
         """
-        if periods != 1:
-            raise NotImplementedError(
-                f"periods={periods} not supported. Currently only periods=1 is supported."
-            )
+        return self._rolling_aggregate(
+            "rolling_diff", values=values, window=window, mask=mask
+        )
 
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        np_values = list(map(val_to_numpy, value_list))
-
-        results = [
-            numba_funcs.group_diff(
-                group_key=self.group_ikey,
-                values=v,
-                ngroups=self.ngroups,
-                mask=mask,
-            )
-            for v in np_values
-        ]
-
-        out_dict = {}
-        for key, result in zip(value_names, results):
-            out_dict[key] = pd.Series(result, common_index)
-
-        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
-        out = pd.DataFrame(out_dict, copy=False)
-        if return_1d:
-            out = out.squeeze(axis=1)
-            if get_array_name(values) is None:
-                out.name = None
-        return out
+    rolling_diff = diff
 
     @groupby_method
     def group_nearby_members(self, values: ArrayType1D, max_diff: int | float):
