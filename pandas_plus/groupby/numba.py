@@ -708,90 +708,16 @@ def group_nearby_members(
 # ===== Rolling Aggregation Methods =====
 
 
-def _apply_rolling_1d_to_2d(
-    rolling_1d_func: Callable,
-    group_key: np.ndarray,
-    values: np.ndarray,
-    ngroups: int,
-    window: int,
-    min_periods: Optional[int] = None,
-    mask: Optional[np.ndarray] = None,
-    n_threads: int = 1,
-    **kwargs,
-):
-    """
-    General wrapper for applying a 1D rolling function to 2D values.
-
-    This function takes any 1D rolling function and applies it column-wise
-    to 2D input values, with optional parallel processing.
-
-    Parameters
-    ----------
-    rolling_1d_func : callable
-        The 1D rolling function to apply to each column
-    group_key : np.ndarray
-        1D array defining the groups
-    values : np.ndarray
-        2D array of values to aggregate (rows x columns)
-    ngroups : int
-        Number of unique groups
-    window : int
-        Rolling window size (constant across all groups)
-    min_periods : Optional[int]
-        Minimum number of non-null observations in window required to have a value
-    mask : Optional[np.ndarray]
-        Boolean mask to filter elements
-    n_threads : int
-        Number of threads to use for parallel column processing
-
-    Returns
-    -------
-    np.ndarray
-        Results for each position and column
-    """
-    n_rows, n_cols = values.shape
-    kwargs = dict(
-        group_key=group_key,
-        ngroups=ngroups,
-        window=window,
-        min_periods=min_periods,
-        mask=mask,
-        **kwargs,
-    )
-
-    if n_threads == 1 or n_cols == 1:
-        # Single-threaded: process columns sequentially
-        result = np.empty((n_rows, n_cols))
-        for col in range(n_cols):
-            kwargs["values"] = _val_to_numpy(values[:, col], as_list=True)
-            result[:, col] = rolling_1d_func(**kwargs)
-        return result
-    else:
-        # Multi-threaded: process columns in parallel
-        def process_column(col_idx):
-            return rolling_1d_func(
-                **kwargs, values=_val_to_numpy(values[:, col_idx], as_list=True)
-            )
-
-        # Use parallel_map to process columns in parallel
-        column_results = parallel_map(
-            process_column, [(i,) for i in range(n_cols)], max_workers=n_threads
-        )
-
-        # Combine results into 2D array
-        result = np.column_stack(column_results)
-        return result
-
-
 def _apply_rolling(
     operation: str,
     group_key: ArrayType1D,
-    values: ArrayType1D | np.ndarray,
+    values: ArrayType1D,
     ngroups: int,
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    allow_downcasting: bool = True,
     **kwargs,
 ):
     """
@@ -806,8 +732,8 @@ def _apply_rolling(
         Name of the rolling operation ('sum', 'mean', 'min', 'max')
     group_key : ArrayType1D
         1D array defining the groups
-    values : ArrayType1D or np.ndarray
-        Values to aggregate. Can be 1D or 2D (for multiple columns)
+    values : ArrayType1D
+        Values to aggregate.
     ngroups : int
         Number of unique groups in group_key
     window : int
@@ -843,23 +769,29 @@ def _apply_rolling(
         raise ValueError(f"Unsupported rolling operation: {operation}")
 
     # Convert inputs to appropriate numpy arrays
-    group_key = _val_to_numpy(group_key)
+    group_key = _val_to_numpy(group_key)[0]
 
     if mask is not None:
-        mask = _val_to_numpy(mask)
+        mask = _val_to_numpy(mask)[0]
 
     rolling_1d_func = rolling_1d_funcs[operation]
+    values, orig_dtype = _val_to_numpy(values, as_list=True)
+    values_are_times = orig_dtype.kind in "mM"
+    null_value = _null_value_for_numpy_type(values[0].dtype)
+    if allow_downcasting and not values_are_times:
+        null_value = np.nan
+
     kwargs = kwargs | locals()
     kwargs = {k: kwargs[k] for k in signature(rolling_1d_func).parameters}
+    result = rolling_1d_func(**kwargs)
 
-    if values.ndim == 1:
-        if not isinstance(values, list):
-            kwargs["values"] = _val_to_numpy(values, as_list=True)
-        return rolling_1d_func(**kwargs)
-    elif values.ndim == 2:
-        return _apply_rolling_1d_to_2d(rolling_1d_func, **kwargs, n_threads=n_threads)
-    else:
-        raise ValueError(f"values must be 1D or 2D got {values.ndim}D")
+    if orig_dtype.kind in "mM":
+        if operation == "diff":
+            result = result.view("m8[ns]")
+        else:
+            result = result.view(orig_dtype)
+
+    return result
 
 
 @nb.njit(nogil=True, fastmath=False)
@@ -870,6 +802,7 @@ def _rolling_sum_or_mean_1d(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
+    null_value=np.nan,
     want_mean: bool = False,
 ):
     """
@@ -896,15 +829,15 @@ def _rolling_sum_or_mean_1d(
     if min_periods is None:
         min_periods = window
 
-    out = np.full(len(group_key), np.nan)
+    out = np.full(len(group_key), null_value)
     masked = mask is not None
 
     # Track rolling sums and circular buffers for each group
     group_sums = np.zeros(ngroups)
-    group_buffers = np.full((ngroups, window), np.nan)
-    group_positions = np.zeros(ngroups, dtype=np.int64)
-    group_non_null = np.zeros(ngroups, dtype=np.int64)
-    group_n_seen = np.zeros(ngroups, dtype=np.int64)
+    group_buffers = np.full((ngroups, window), null_value)
+    group_positions = np.zeros(ngroups, dtype=np.uint8)
+    group_non_null = np.zeros(ngroups, dtype=np.uint8)
+    group_n_seen = np.zeros(ngroups, dtype=np.uint8)
     i = -1
 
     for arr in values:
@@ -959,6 +892,7 @@ def rolling_sum(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
+    allow_downcasting: bool = True,
     n_threads: int = 1,
 ):
     """
@@ -1028,6 +962,7 @@ def rolling_mean(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
+    allow_downcasting: bool = True,
     n_threads: int = 1,
 ):
     """
@@ -1079,6 +1014,7 @@ def _rolling_max_or_min_1d(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[np.ndarray] = None,
+    null_value=np.nan,
     want_max: bool = True,
 ):
     """
@@ -1090,14 +1026,14 @@ def _rolling_max_or_min_1d(
     if min_periods is None:
         min_periods = window
 
-    out = np.full(len(group_key), np.nan)
+    out = np.full(len(group_key), null_value)
     masked = mask is not None
     want_min = not want_max
 
     # Track rolling max/min and its position in circular buffers for each group
     current_best = np.full(ngroups, -np.inf if want_max else np.inf)
     pos_of_current_best = np.zeros(ngroups, dtype=np.uint8)
-    group_buffers = np.full((ngroups, window), np.nan)
+    group_buffers = np.full((ngroups, window), null_value)
     group_buffer_pos = np.zeros(ngroups, dtype=np.uint8)
     group_non_null = np.zeros(ngroups, dtype=np.uint8)
     group_n_seen = np.zeros(ngroups, dtype=np.uint8)
@@ -1172,6 +1108,7 @@ def rolling_min(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
+    allow_downcasting: bool = True,
     n_threads: int = 1,
 ):
     """
@@ -1205,6 +1142,7 @@ def rolling_max(
     window: int,
     min_periods: Optional[int] = None,
     mask: Optional[ArrayType1D] = None,
+    allow_downcasting: bool = True,
     n_threads: int = 1,
 ):
     """
@@ -1238,7 +1176,7 @@ def _rolling_shift_or_diff_1d(
     ngroups: int,
     window: int,
     mask: Optional[np.ndarray] = None,
-    null_value: float | np.timedelta64 | int = np.nan,
+    null_value: float | int = np.nan,
     want_shift: bool = True,
 ):
     """
@@ -1252,7 +1190,8 @@ def _rolling_shift_or_diff_1d(
 
     # Track rolling sums and circular buffers for each group
     group_buffers = np.full((ngroups, window), null_value)
-    group_buffer_pos = np.zeros(ngroups, dtype=np.int64)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.uint8)
+    group_counts = np.zeros(ngroups, dtype=np.int64)
 
     i = -1
     for arr in values:
@@ -1268,15 +1207,17 @@ def _rolling_shift_or_diff_1d(
 
             # Get current position in circular buffer for this group and add new val
             pos = group_buffer_pos[key]
-            if want_shift:
-                out[i] = group_buffers[key, pos]
-            else:
-                out[i] = val - group_buffers[key, pos]
+            if group_counts[key] >= window:
+                if want_shift:
+                    out[i] = group_buffers[key, pos]
+                else:
+                    out[i] = val - group_buffers[key, pos]
 
             group_buffers[key, pos] = val
 
             # Update position
             group_buffer_pos[key] = (pos + 1) % window
+            group_counts[key] += 1
 
     return out
 
@@ -1287,11 +1228,8 @@ def rolling_shift(
     ngroups: int,
     window: int,
     mask: Optional[np.ndarray] = None,
+    allow_downcasting: bool = True,
 ):
-    np_type = _val_to_numpy(values, as_list=True)[0].dtype
-    null_value = _null_value_for_numpy_type(np_type)
-    if np_type.kind in "ui":
-        null_value = np.nan
     return _apply_rolling("shift", want_shift=True, **locals())
 
 
@@ -1301,14 +1239,8 @@ def rolling_diff(
     ngroups: int,
     window: int,
     mask: Optional[np.ndarray] = None,
+    allow_downcasting: bool = True,
 ):
-    np_type = _val_to_numpy(values, as_list=True)[0].dtype
-    null_value = _null_value_for_numpy_type(np_type)
-    if values.dtype.kind == "M":
-        null_value = np.timedelta64("NaT", "ns")
-    elif np_type.kind in "ui":
-        # TODO: allow users not to downcast here
-        null_value = np.nan
     return _apply_rolling("diff", want_shift=False, **locals())
 
 
