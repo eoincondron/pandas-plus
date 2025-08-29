@@ -18,6 +18,7 @@ from ..util import (
     convert_data_to_arr_list_and_keys,
     get_array_name,
     series_is_numeric,
+    parallel_map,
 )
 
 ArrayCollection = (
@@ -250,7 +251,7 @@ class GroupBy:
     @property
     def _n_threads(self) -> int:
         n_cpus = multiprocessing.cpu_count()
-        n_threads = min((n_cpus - 1) * 2, len(self.group_ikey) // 1_000_000)
+        n_threads = min((n_cpus - 1) * 2, len(self.group_ikey) // 1_000_000, 4)
         n_threads = max(n_threads, 1)
         return n_threads
 
@@ -337,16 +338,26 @@ class GroupBy:
 
         func = getattr(numba_funcs, f"group_{func_name}")
 
-        results = map(
-            lambda v: func(
+        n_values = len(value_list)
+        threads_for_row_axis = max(1, self._n_threads // n_values)
+
+        bound_args = [
+            signature(func).bind(
                 group_key=self.group_ikey,
-                values=v,
+                values=x,
                 mask=mask,
                 ngroups=self.ngroups + 1,
-                n_threads=self._n_threads,
-            ),
-            value_list,
-        )
+                n_threads=threads_for_row_axis,
+            )
+            for x in value_list
+        ]
+
+        arg_list = [tuple(args.arguments.values()) for args in bound_args]
+        if len(arg_list) > 1:
+            results = parallel_map(func, arg_list)
+        else:
+            results = [func(*arg_list[0])]
+
         out_dict = {}
         for key, result in zip(value_names, results):
             if transform:
@@ -357,7 +368,7 @@ class GroupBy:
                 result = out_dict[key] = pd.Series(result[:-1], self.result_index)
 
             return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
-            out = pd.DataFrame(out_dict)
+            out = pd.DataFrame(out_dict, copy=False)
             if return_1d:
                 out = out.squeeze(axis=1)
                 if get_array_name(values) is None:
