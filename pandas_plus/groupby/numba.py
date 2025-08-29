@@ -444,7 +444,7 @@ def _group_by_reduce(
     mask: np.ndarray = None,
 ):
     masked = mask is not None
-    count = np.full(len(target), 0, dtype="uint32")
+    count = np.full(len(target), 0, dtype="int64")
     i = -1
     for arr in values:
         for val in arr:
