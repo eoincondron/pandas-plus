@@ -187,6 +187,7 @@ def parallel_map(
     """
     Apply a function to each item in a list in parallel using concurrent.futures.
 
+
     Args:
         func: The function to apply to each item
         arg_list: List of items to process
@@ -201,9 +202,10 @@ def parallel_map(
         >>> parallel_map(square, [1, 2, 3, 4, 5])
         [1, 4, 9, 16, 25]
     """
-    # Choose between ProcessPoolExecutor and ThreadPoolExecutor based on your needs
-    # ProcessPoolExecutor is better for CPU-bound tasks
-    # ThreadPoolExecutor is better for I/O-bound tasks
+    arg_list = list(arg_list)
+    if len(arg_list) == 1:
+        return [func(*arg_list[0])]
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all tasks and store the future objects
         future_to_index = {

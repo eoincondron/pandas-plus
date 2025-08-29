@@ -305,6 +305,28 @@ class GroupBy:
             levels=levels,
         )
 
+    def _build_arg_list_for_function(self, func, values, mask, **kwargs):
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        n_values = len(value_list)
+
+        sig = signature(func)
+        shared_kwargs = dict(
+            group_key=self.group_ikey,
+            mask=mask,
+            ngroups=self.ngroups + 1,
+            **kwargs,
+        )
+        if "n_threads" in sig.parameters:
+            threads_for_row_axis = max(1, self._n_threads // n_values)
+            shared_kwargs["n_threads"] = threads_for_row_axis
+
+        bound_args = [
+            signature(func).bind(values=x, **shared_kwargs) for x in value_list
+        ]
+        arg_dict = {name: args.args for name, args in zip(value_names, bound_args)}
+
+        return arg_dict, common_index
+
     def _apply_gb_func(
         self,
         func_name: str,
@@ -334,32 +356,14 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Results of the groupby operation
         """
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-
         func = getattr(numba_funcs, f"group_{func_name}")
-
-        n_values = len(value_list)
-        threads_for_row_axis = max(1, self._n_threads // n_values)
-
-        bound_args = [
-            signature(func).bind(
-                group_key=self.group_ikey,
-                values=x,
-                mask=mask,
-                ngroups=self.ngroups + 1,
-                n_threads=threads_for_row_axis,
-            )
-            for x in value_list
-        ]
-
-        arg_list = [tuple(args.arguments.values()) for args in bound_args]
-        if len(arg_list) > 1:
-            results = parallel_map(func, arg_list)
-        else:
-            results = [func(*arg_list[0])]
+        arg_dict, common_index = self._build_arg_list_for_function(
+            func, values=values, mask=mask
+        )
+        results = parallel_map(func, arg_dict.values())
 
         out_dict = {}
-        for key, result in zip(value_names, results):
+        for key, result in zip(arg_dict, results):
             if transform:
                 result = out_dict[key] = pd.Series(
                     result[self.group_ikey], common_index
@@ -367,7 +371,7 @@ class GroupBy:
             else:
                 result = out_dict[key] = pd.Series(result[:-1], self.result_index)
 
-            return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+            return_1d = len(arg_dict) == 1 and isinstance(values, ArrayType1D)
             out = pd.DataFrame(out_dict, copy=False)
             if return_1d:
                 out = out.squeeze(axis=1)
@@ -1067,15 +1071,15 @@ class GroupBy:
         )
         return self._get_row_selection(values, ilocs, keep_input_index, n=n)
 
-    def _rolling_aggregate(
+    def _apply_rolling_or_cumulative_func(
         self,
         func_name: str,
         values: ArrayCollection,
-        window: int,
         mask: Optional[ArrayType1D] = None,
+        **kwargs,
     ):
         """
-        Shared implementation for rolling aggregation methods.
+        Shared implementation for rolling/cumulative aggregation methods.
 
         Parameters
         ----------
@@ -1083,8 +1087,6 @@ class GroupBy:
             Name of the rolling function to call ('rolling_sum', 'rolling_mean', etc.)
         values : ArrayCollection
             Values to aggregate, can be a single array/Series or a collection of them.
-        window : int
-            Size of the rolling window.
         mask : ArrayType1D, optional
             Boolean mask to filter values before calculation.
 
@@ -1093,27 +1095,19 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling aggregation results with same shape as input.
         """
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
 
         # Get the appropriate numba function
-        rolling_func = getattr(numba_funcs, func_name)
-
-        results = [
-            rolling_func(
-                group_key=self.group_ikey,
-                values=v,
-                ngroups=self.ngroups,
-                window=window,
-                mask=mask,
-            )
-            for v in value_list
-        ]
+        func = getattr(numba_funcs, func_name)
+        arg_dict, common_index = self._build_arg_list_for_function(
+            func, values=values, mask=mask, **kwargs,
+        )
+        results = parallel_map(func, arg_dict.values())
 
         out_dict = {}
-        for key, result in zip(value_names, results):
+        for key, result in zip(arg_dict, results):
             out_dict[key] = pd.Series(result, common_index)
 
-        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
+        return_1d = len(arg_dict) == 1 and isinstance(values, ArrayType1D)
         out = pd.DataFrame(out_dict)
         if return_1d:
             out = out.squeeze(axis=1)
@@ -1145,7 +1139,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling sum of values for each group, same shape as input.
         """
-        return self._rolling_aggregate("rolling_sum", values, window, mask)
+        return self._apply_rolling_or_cumulative_func(
+            "rolling_sum", values, window=window, mask=mask
+        )
 
     @groupby_method
     def rolling_mean(
@@ -1171,7 +1167,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling mean of values for each group, same shape as input.
         """
-        return self._rolling_aggregate("rolling_mean", values, window, mask)
+        return self._apply_rolling_or_cumulative_func(
+            "rolling_mean", values, window=window, mask=mask
+        )
 
     @groupby_method
     def rolling_min(
@@ -1197,7 +1195,7 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling minimum of values for each group, same shape as input.
         """
-        return self._rolling_aggregate("rolling_min", values, window, mask)
+        return self._apply_rolling_or_cumulative_func("rolling_min", values, window=window, mask=mask)
 
     @groupby_method
     def rolling_max(
@@ -1223,61 +1221,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling maximum of values for each group, same shape as input.
         """
-        return self._rolling_aggregate("rolling_max", values, window, mask)
-
-    def _cumulative_aggregate(
-        self,
-        func_name: str,
-        values: ArrayCollection,
-        mask: Optional[ArrayType1D] = None,
-        skip_na: bool = True,
-    ):
-        """
-        Shared implementation for cumulative aggregation methods.
-
-        Parameters
-        ----------
-        func_name : str
-            Name of the cumulative function to call ('cumsum', 'cummin', 'cummax')
-        values : ArrayCollection
-            Values to aggregate, can be a single array/Series or a collection of them.
-        mask : ArrayType1D, optional
-            Boolean mask to filter values before calculation.
-        skip_na : bool, default True
-            Whether to skip NA/null values in the calculation.
-
-        Returns
-        -------
-        pd.Series or pd.DataFrame
-            Cumulative aggregation results with same shape as input.
-        """
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-
-        # Get the appropriate numba function
-        cumulative_func = getattr(numba_funcs, func_name)
-
-        results = [
-            cumulative_func(
-                group_key=self.group_ikey,
-                values=v,
-                ngroups=self.ngroups,
-                mask=mask,
-                skip_na=skip_na,
-            )
-            for v in value_list
-        ]
-
-        out_dict = {}
-        for key, result in zip(value_names, results):
-            out_dict[key] = pd.Series(result, common_index)
-
-        return_1d = len(value_list) == 1 and isinstance(values, ArrayType1D)
-        out = pd.DataFrame(out_dict, copy=False)
-        if return_1d:
-            out = out.squeeze(axis=1)
-            if get_array_name(values) is None:
-                out.name = None
-        return out
+        return self._apply_rolling_or_cumulative_func(
+            "rolling_max", values, window=window, mask=mask
+        )
 
     @groupby_method
     def cumsum(
@@ -1303,16 +1249,17 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Cumulative sum of values for each group, same shape as input.
         """
-        return self._cumulative_aggregate("cumsum", values, mask, skip_na)
+        return self._apply_rolling_or_cumulative_func("cumsum", values, mask, skip_na=skip_na)
 
     @groupby_method
     def cumcount(
         self,
-        values: Optional[ArrayType1D] = None,
         mask: Optional[ArrayType1D] = None,
     ):
         """
-        Calculate cumulative count in each group.
+        Calculate cumulative count in each group. 
+        Note this is the base-0 count of each group regardless of nullity, 
+        which is consistent with Pandas but inconsistent with the .count method (Pandas has this inconsistency)
 
         Parameters
         ----------
@@ -1324,27 +1271,7 @@ class GroupBy:
         pd.Series
             Cumulative count for each group, same shape as input.
         """
-        if mask is not None:
-            # Validate mask has same length as group_ikey
-            if len(mask) != len(self.group_ikey):
-                raise ValueError(
-                    f"Mask length {len(mask)} doesn't match group key length {len(self.group_ikey)}"
-                )
-
-        result = numba_funcs.cumcount(
-            group_key=self.group_ikey,
-            values=values,
-            ngroups=self.ngroups,
-            mask=mask,
-        )
-
-        # Create index - use _key_index if available, otherwise RangeIndex
-        index = (
-            self._key_index
-            if self._key_index is not None
-            else pd.RangeIndex(len(result))
-        )
-        return pd.Series(result, index=index)
+        return self._apply_rolling_or_cumulative_func("cumcount", self.group_ikey, mask)
 
     @groupby_method
     def cummin(
@@ -1370,7 +1297,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Cumulative minimum of values for each group, same shape as input.
         """
-        return self._cumulative_aggregate("cummin", values, mask, skip_na)
+        return self._apply_rolling_or_cumulative_func(
+            "cummin", values, mask, skip_na=skip_na
+        )
 
     @groupby_method
     def cummax(
@@ -1396,7 +1325,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Cumulative maximum of values for each group, same shape as input.
         """
-        return self._cumulative_aggregate("cummax", values, mask, skip_na)
+        return self._apply_rolling_or_cumulative_func(
+            "cummax", values, mask, skip_na=skip_na
+        )
 
     @groupby_method
     def shift(
@@ -1443,7 +1374,7 @@ class GroupBy:
         3    3.0
         Name: values, dtype: float64
         """
-        return self._rolling_aggregate(
+        return self._apply_rolling_or_cumulative_func(
             "rolling_shift", values=values, window=window, mask=mask
         )
 
@@ -1494,7 +1425,7 @@ class GroupBy:
         3    4.0
         Name: values, dtype: float64
         """
-        return self._rolling_aggregate(
+        return self._apply_rolling_or_cumulative_func(
             "rolling_diff", values=values, window=window, mask=mask
         )
 
@@ -1520,7 +1451,6 @@ class GroupBy:
             max_diff=max_diff,
             n_groups=self.ngroups,
         )
-
 
 def pivot_table(
     index: ArrayCollection,
