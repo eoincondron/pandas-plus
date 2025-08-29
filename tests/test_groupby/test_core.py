@@ -124,7 +124,7 @@ class TestGroupBy:
     def test_2d_variants(self, method, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
         values = value_type(
-            [np.random.rand(len(key)), np.random.randint(0, 9, len(key))]
+            [np.random.rand(len(key)), np.random.randint(0, 9, len(key)), np.arange(len(key)) % 2 == 0]
         )
 
         if use_mask:
@@ -137,7 +137,7 @@ class TestGroupBy:
             key, values.T if value_type is np.array else values, mask=mask
         )
 
-        compare_df = pd.DataFrame(dict(zip(["_arr_0", "_arr_1"], values)))
+        compare_df = pd.DataFrame(dict(zip(["_arr_0", "_arr_1", "_arr_2"], values)))
         expected = getattr(compare_df[pd_mask].groupby(key[pd_mask]), method)()
         pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
 
@@ -241,10 +241,23 @@ class TestGroupBy:
         else:
             mask = None
             pd_mask = slice(None)
+
         # Test with sum
         result_sum = gb.sum(values, mask=mask)
         expected_sum = values[pd_mask].groupby(key[pd_mask]).sum()
         pd.testing.assert_series_equal(result_sum, expected_sum)
+
+        # Test with bools
+        bools = values > values.median()
+        result_percentage = gb.mean(bools, mask=mask)
+        expected_percentage = bools[pd_mask].groupby(key[pd_mask]).mean()
+        pd.testing.assert_series_equal(result_percentage, expected_percentage)
+
+        # Test with multiple columns
+        result = gb.mean([values, bools], mask=mask)
+        expected_mean = values[pd_mask].groupby(key[pd_mask]).mean()
+        expected = pd.DataFrame({"_arr_0": expected_mean, "_arr_1": expected_percentage})
+        pd.testing.assert_frame_equal(result, expected)
 
     def test_categorical_order_preserved(self):
         key = pd.Categorical.from_codes(
@@ -610,7 +623,7 @@ class TestGroupByRowSelection:
 
 
 @pytest.fixture(scope="module")
-def df_chunked(tmpdir_factory):
+def parquet_files(tmpdir_factory):
     tmpdir = tmpdir_factory.mktemp("test")
     N = 10_000
     a = np.arange(N)
@@ -629,11 +642,18 @@ def df_chunked(tmpdir_factory):
     for file in files:
         df.to_parquet(file)
 
-    df_chunked = pd.read_parquet(files, dtype_backend="pyarrow")
+    return files
 
+@pytest.fixture(scope="module")
+def df_chunked(parquet_files):
+    df_chunked = pd.read_parquet(parquet_files, dtype_backend="pyarrow")
     assert isinstance(pa.Array.from_pandas(df_chunked.ints), pa.ChunkedArray)
-
     return df_chunked
+
+
+@pytest.fixture(scope="module")
+def df_np_backed(parquet_files):
+    return pd.read_parquet(parquet_files)
 
 
 @pytest.mark.parametrize(
@@ -676,10 +696,37 @@ def test_group_by_rolling_methods_vs_pandas_with_chunked_arrays(df_chunked, meth
     cols = ["ints", "floats"]
     window = 5
     gb = df_chunked.groupby("cat", sort=False, observed=True).rolling(window)
-    pd_version = getattr(gb[cols], method)()
-    pp_version = getattr(GroupBy, f"rolling_{method}")(
+    expected = getattr(gb[cols], method)()
+    result = getattr(GroupBy, f"rolling_{method}")(
         df_chunked.cat, df_chunked[cols], window=window
     )
-    expected = pd_version.reset_index(level=0, drop=True).sort_index()
+    expected = expected.reset_index(level=0, drop=True).sort_index()
 
-    pd.testing.assert_frame_equal(pp_version, expected, check_dtype=False)
+    pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+
+@pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
+def test_group_by_rolling_methods_vs_pandas_with_np_arrays(df_np_backed, method):
+    cols = ["ints", "floats"]
+    window = 5
+    gb = df_np_backed.groupby("cat", sort=False, observed=True).rolling(window)
+    expected = getattr(gb[cols], method)()
+    result = getattr(GroupBy, f"rolling_{method}")(
+        df_np_backed.cat, df_np_backed[cols], window=window
+    )
+    expected = expected.reset_index(level=0, drop=True).sort_index()
+    pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+
+
+@pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
+def test_group_by_rolling_methods_vs_pandas_with_timedeltas(df_np_backed, method):
+    window = 5
+    result = getattr(GroupBy, f"rolling_{method}")(
+        df_np_backed.cat, df_np_backed.timedeltas, window=window
+    )
+    df_np_backed["time_int"] = df_np_backed.timedeltas.astype(int)
+    gb = df_np_backed.groupby("cat", sort=False, observed=True).rolling(window)
+    expected = getattr(gb["time_int"], method)()
+    expected = expected.reset_index(level=0, drop=True).sort_index().astype("m8[ns]")
+
+    pd.testing.assert_series_equal(result, expected, check_dtype=False, check_names=False)
