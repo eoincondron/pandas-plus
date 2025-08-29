@@ -1285,6 +1285,7 @@ def _cumulative_reduce(
     masked = mask is not None
     # Track current state for each group
     group_last_seen = np.full(ngroups, -1)
+    group_count = np.zeros(ngroups, dtype="uint32")
     i = -1
     has_null_key = False
 
@@ -1304,7 +1305,9 @@ def _cumulative_reduce(
                     target[i] = target[last_seen]
                 continue
 
-            target[i], _ = reduce_func(target[last_seen], val, last_seen >= 0)
+            target[i], group_count[key] = reduce_func(
+                target[last_seen], val, group_count[key]
+            )
             group_last_seen[key] = i
 
     return target, has_null_key
@@ -1347,14 +1350,14 @@ def _apply_cumulative(
         If operation is not supported
     """
     # Convert inputs to appropriate numpy arrays
-    group_key = _val_to_numpy(group_key)
+    group_key = _val_to_numpy(group_key)[0]
 
     if mask is not None:
-        mask = _val_to_numpy(mask)
+        mask = _val_to_numpy(mask)[0]
 
     # Map operation names to reduction functions
     try:
-        name = "nan" + operation if (skip_na and operation != "count") else operation
+        name = "nan" + operation if skip_na else operation
         reduce_func = getattr(ScalarFuncs, name)
     except AttributeError:
         raise ValueError(f"Unsupported cumulative operation: {name}")
@@ -1362,8 +1365,12 @@ def _apply_cumulative(
     if values is None:
         raise ValueError(f"values cannot be None for operation '{operation}'")
 
-    values = _val_to_numpy(values, as_list=True)
-    target = _build_target_for_groupby(values[0].dtype, operation, len(group_key))
+    counting = "count" in operation
+
+    values, orig_type = _val_to_numpy(values, as_list=True)
+    target = _build_target_for_groupby(
+        values[0].dtype, "sum" if counting else operation, len(group_key)
+    )
     result, has_null_keys = _cumulative_reduce(
         group_key=group_key,
         values=values,
@@ -1373,11 +1380,14 @@ def _apply_cumulative(
         target=target,
     )
     if has_null_keys:
-        if operation == "count":
+        if "count" in operation:
             na_rep = 0
         else:
             na_rep = _null_value_for_numpy_type(result.dtype)
         result[np.asarray(group_key) < 0] = na_rep
+
+    elif orig_type.kind in "mM":
+        result = result.astype(orig_type)
 
     return result
 
