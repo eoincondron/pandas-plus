@@ -1,12 +1,13 @@
 import inspect
 from inspect import signature
-from typing import Callable, Optional, List, Literal
+from typing import Callable, Optional, List, Tuple
 from functools import wraps
 from copy import deepcopy
 
 import numba as nb
 import numpy as np
 import pandas as pd
+import polars as pl
 import pyarrow as pa
 from numba.typed import List as NumbaList
 
@@ -114,7 +115,7 @@ def _array_split_for_lists(arr_list, n_chunks):
 
 def _val_to_numpy(
     val: ArrayType1D, as_list: bool = False
-) -> np.ndarray | NumbaList[np.ndarray]:
+) -> Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]:
     """
     Convert various array types to numpy array.
 
@@ -125,27 +126,40 @@ def _val_to_numpy(
 
     Returns
     -------
-    np.ndarray
-        NumPy array representation of the input
+    Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]
+        NumPy array representation of the input, as a list of arrays or a single array,
+        along with the original type if casting timestamps to ints
     """
-    if isinstance(val, pd.Series) and "pyarrow" in str(val.dtype):
-        val = pa.Array.from_pandas(val)  # type: ignore
-        chunked = isinstance(
-            val,
-            pa.ChunkedArray,
-        )
-        if chunked and as_list:
-            return NumbaList([chunk.to_numpy() for chunk in val.chunks])
 
-    try:
-        val = val.to_numpy()  # type: ignore
-    except AttributeError:
-        val = np.asarray(val)
+    if isinstance(val, pl.Series):
+        arrow: pa.Array = val.to_arrow()
+    elif isinstance(val, pd.Series) and "pyarrow" in str(val.dtype):
+        arrow: pa.Array = pa.Array.from_pandas(val)  # type: ignore
+    else:
+        arrow = None
+
+    chunked = isinstance(
+        arrow,
+        pa.ChunkedArray,
+    )
+    if chunked:
+        val_list = [chunk.to_numpy() for chunk in arrow.chunks]
+    elif hasattr(val, "to_numpy"):
+        val_list = [val.to_numpy()]  # type: ignore
+    else:
+        val_list = [np.asarray(val)]
+
+    val_list, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, val_list)))
+    orig_type = orig_types[0]
 
     if as_list:
-        return NumbaList([val])
+        return NumbaList(val_list), orig_type
     else:
-        return val
+        if len(val_list) > 1:
+            val = np.concatenate(val_list)
+        else:
+            val = val_list[0]
+        return val, orig_type
 
 
 def _build_target_for_groupby(np_type, operation: str, shape):
@@ -460,14 +474,11 @@ def _group_func_wrap(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    group_key = _val_to_numpy(group_key)
+    group_key = _val_to_numpy(group_key)[0]
     if mask is not None:
-        mask = _val_to_numpy(mask)
+        mask = _val_to_numpy(mask)[0]
 
-    values = _val_to_numpy(values, as_list=True)
-    values, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, values)))
-    values = list(values)
-    orig_type = orig_types[0]
+    values, orig_type = _val_to_numpy(values, as_list=True)
     target = _build_target_for_groupby(values[0].dtype, reduce_func_name, ngroups)
 
     kwargs = dict(
