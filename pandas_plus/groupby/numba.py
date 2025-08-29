@@ -163,8 +163,9 @@ def _val_to_numpy(
 
 
 def _build_target_for_groupby(np_type, operation: str, shape):
-    if operation == "count":
-        target = np.zeros(shape, dtype=np.int64)
+    if operation in ("count", "nancount"):
+        # for counts, the target is redundant as we collect the counts in a separate array
+        target = np.zeros(shape, dtype=bool)
         return target
 
     dtype = np_type
@@ -345,96 +346,93 @@ def find_last_n(
 class ScalarFuncs:
 
     @_scalar_func_decorator
-    def sum(cur_sum, next_val, seen):
-        if seen:
-            return cur_sum + next_val, True
+    def sum(cur_sum, next_val, count):
+        if count:
+            return cur_sum + next_val, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def nansum(cur_sum, next_val, seen):
+    def nansum(cur_sum, next_val, count):
         if is_null(next_val):
-            return cur_sum, seen
-        elif seen:
-            return cur_sum + next_val, True
+            return cur_sum, count
+        elif count:
+            return cur_sum + next_val, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def max(cur_max, next_val, seen):
+    def max(cur_max, next_val, count):
         if is_null(next_val):
-            return next_val, seen
-        elif seen:
+            return next_val, count
+        elif count:
             if next_val > cur_max:
                 cur_max = next_val
-            return cur_max, True
+            return cur_max, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def nanmax(cur_max, next_val, seen):
+    def nanmax(cur_max, next_val, count):
         if is_null(next_val):
-            return cur_max, seen
-        elif seen:
+            return cur_max, count
+        elif count:
             if next_val > cur_max:
                 cur_max = next_val
-            return cur_max, True
+            return cur_max, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def min(cur_max, next_val, seen):
+    def min(cur_max, next_val, count):
         if is_null(next_val):
-            return next_val, seen
-        elif seen:
+            return next_val, count
+        elif count:
             if next_val < cur_max:
                 cur_max = next_val
-            return cur_max, True
+            return cur_max, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def nanmin(cur_min, next_val, seen):
+    def nanmin(cur_min, next_val, count):
         if is_null(next_val):
-            return cur_min, seen
-        elif seen:
+            return cur_min, count
+        elif count:
             if next_val < cur_min:
                 cur_min = next_val
-            return cur_min, True
+            return cur_min, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def count(cur_count, next_val, seen):
+    def nancount(cur_count, next_val, count):
         if is_null(next_val):
-            return cur_count, seen
-        elif seen:
-            return cur_count + 1, True
+            return count, count
         else:
-            return 1, True
+            new_count = count + 1
+            return new_count, new_count
 
     @_scalar_func_decorator
-    def size(cur_size, next_val, seen):
-        if seen:
-            return cur_size + 1, True
-        else:
-            return 1, True
+    def count(cur_size, next_val, count):
+        new_count = count + 1
+        return new_count, new_count
 
     @_scalar_func_decorator
-    def first(cur_first, next_val, seen):
+    def first(cur_first, next_val, count):
         if is_null(next_val):
-            return cur_first, seen
-        elif seen:
-            return cur_first, True
+            return cur_first, count
+        elif count:
+            return cur_first, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
     @_scalar_func_decorator
-    def last(cur_last, next_val, seen):
+    def last(cur_last, next_val, count):
         if is_null(next_val):
-            return cur_last, seen
+            return cur_last, count + 1
         else:
-            return next_val, True
+            return next_val, count + 1
 
 
 @nb.njit(nogil=True)
@@ -446,7 +444,7 @@ def _group_by_reduce(
     mask: np.ndarray = None,
 ):
     masked = mask is not None
-    seen = np.full(len(target), False)
+    count = np.full(len(target), 0, dtype="uint32")
     i = -1
     for arr in values:
         for val in arr:
@@ -458,21 +456,20 @@ def _group_by_reduce(
             if masked and not mask[i]:
                 continue
 
-            target[key], seen[key] = reduce_func(target[key], val, seen[key])
+            target[key], count[key] = reduce_func(target[key], val, count[key])
 
-    return target
+    return target, count
 
 
 @check_data_inputs_aligned("group_key", "values", "mask")
 def _group_func_wrap(
-    reduce_func_name: Literal[
-        "count", "nansum", "nanmin", "nanmax", "first", "last", "size"
-    ],
+    reduce_func_name: str,
     group_key: ArrayType1D,
     values: ArrayType1D,
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     group_key = _val_to_numpy(group_key)[0]
     if mask is not None:
@@ -487,27 +484,31 @@ def _group_func_wrap(
         target=target,
         mask=mask,
     )
-    if reduce_func_name is not None:
-        kwargs["reduce_func"] = getattr(ScalarFuncs, reduce_func_name)
+    kwargs["reduce_func"] = getattr(ScalarFuncs, reduce_func_name)
+    counting = "count" in reduce_func_name
+
     if n_threads == 1:
-        out = _group_by_reduce(**kwargs)
+        out, count = _group_by_reduce(**kwargs)
+        if counting:
+            out = count
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
         chunks = parallel_map(_group_by_reduce, [args.args for args in chunked_args])
+        chunks, counts = zip(*chunks)
+        if counting:
+            chunks = counts
         arr = np.vstack(chunks)
-        chunk_reduce = (
-            "sum"
-            if reduce_func_name in ("size", "count")
-            else reduce_func_name.replace("nan", "")
-        )
+        chunk_reduce = "sum" if counting else reduce_func_name.replace("nan", "")
         out = nanops.reduce_2d(chunk_reduce, arr)
+        count = sum(counts)
 
-    if reduce_func_name in ("count", "size"):
-        out = out.astype(np.int64)
-    elif orig_type.kind in "mM":
+    if orig_type.kind in "mM":
         out = out.astype(orig_type)
 
-    return out
+    if return_count:
+        return out, count
+    else:
+        return out
 
 
 def group_size(
@@ -535,7 +536,7 @@ def group_size(
     ArrayType1D
         An array with the count of elements in each group.
     """
-    return _group_func_wrap("size", values=group_key, **locals())
+    return _group_func_wrap("count", values=group_key, **locals())
 
 
 def group_count(
@@ -578,7 +579,7 @@ def group_count(
     >>> print(counts)
     [2 2 1]
     """
-    return _group_func_wrap("count", **locals())
+    return _group_func_wrap("nancount", **locals())
 
 
 def group_sum(
@@ -598,11 +599,9 @@ def group_mean(
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
 ):
-    kwargs = locals().copy()
-    sum = group_sum(**kwargs)
-    int_sum, orig_type = _maybe_cast_timestamp_arr(sum)
-    count = group_count(**kwargs)
-    mean = int_sum / count
+    sum_, count = _group_func_wrap("nansum", **locals(), return_count=True)
+    sum_, orig_type = _maybe_cast_timestamp_arr(sum_)
+    mean = sum_ / count
     if orig_type.kind in "mM":
         mean = mean.astype(orig_type)
     return mean

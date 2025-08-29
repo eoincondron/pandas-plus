@@ -33,7 +33,7 @@ def is_null(x):
     return py_isnull(x)
 
 
-@pytest.mark.parametrize("seen", [True, False])
+@pytest.mark.parametrize("count", [0, 1])
 @pytest.mark.parametrize(
     "values",
     [
@@ -46,13 +46,13 @@ def is_null(x):
     ],
 )
 @pytest.mark.parametrize("method", [sum, min, max])
-def test_scalar_methods(method, values, seen):
-    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, seen)
-    expected = method(values) if seen else values[1], True
+def test_scalar_methods(method, values, count):
+    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, count)
+    expected = method(values) if count else values[1], count + 1
     assert result == expected
 
 
-@pytest.mark.parametrize("seen", [True, False])
+@pytest.mark.parametrize("count", [0, 1])
 @pytest.mark.parametrize(
     "values",
     [
@@ -61,9 +61,9 @@ def test_scalar_methods(method, values, seen):
     ],
 )
 @pytest.mark.parametrize("method", [sum, min, max])
-def test_scalar_methods_with_nans(method, values, seen):
-    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, seen)
-    expected = values[0], seen
+def test_scalar_methods_with_nans(method, values, count):
+    result = getattr(ScalarFuncs, "nan" + method.__name__)(*values, count)
+    expected = values[0], count
     assert result == expected
 
 
