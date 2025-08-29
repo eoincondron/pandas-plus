@@ -495,6 +495,12 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
     ):
+        if not margins:
+            # TODO make a group_sum that returns counts
+            return self._apply_gb_func(
+                "mean", values=values, mask=mask, transform=transform, margins=margins
+            )
+
         sum_, count = GroupBy.sum(**locals()), GroupBy.count(**locals())
         if sum_.ndim == 2:
             timestamp_cols = [col for col, d in sum_.dtypes.items() if d.kind in "mM"]
