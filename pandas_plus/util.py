@@ -112,16 +112,16 @@ def _null_value_for_numpy_type(np_type: np.dtype):
         case "u":
             return np.iinfo(np_type).max
         case "m":
-            return np.timedelta64("NaT")
+            return np.timedelta64("NaT", "ns")
         case "M":
-            return np.datetime64("NaT")
+            return np.datetime64("NaT", "ns")
         case "b":
             return False
         case _:
             raise error
 
 
-def _maybe_cast_timestamp_arr(arr):
+def _maybe_cast_timestamp_arr(arr) -> Tuple[np.ndarray, np.dtype]:
     if arr.dtype.kind in "mM":
         return arr.view("int64"), arr.dtype
     else:
@@ -319,7 +319,7 @@ def jit_get_first_non_null(arr):
 
         return f
 
-    elif arr.dtype.kind == "b":
+    elif isinstance(arr.dtype, nb.types.Boolean):
 
         def f(x):
             return 0, arr[0]
