@@ -13,15 +13,21 @@ from .core import GroupBy, ArrayCollection, ArrayType1D
 from abc import ABC, abstractmethod
 
 
-def groupby_aggregation(description: str, extra_params: str = "", include_numeric_only: bool = True, include_margins: bool = True, **docstring_params):
+def groupby_aggregation(
+    description: str,
+    extra_params: str = "",
+    include_numeric_only: bool = True,
+    include_margins: bool = True,
+    **docstring_params,
+):
     """
     Decorator for SeriesGroupBy/DataFrameGroupBy aggregation methods.
-    
+
     This decorator:
-    1. Eliminates boilerplate return value processing 
+    1. Eliminates boilerplate return value processing
     2. Auto-generates consistent docstrings
     3. Handles mask parameter consistently
-    
+
     Parameters
     ----------
     description : str
@@ -31,26 +37,30 @@ def groupby_aggregation(description: str, extra_params: str = "", include_numeri
     **docstring_params : dict
         Additional parameters for docstring template
     """
+
     def decorator(func):
         method_name = func.__name__
-        
+
         # Generate docstring
         param_docs = f"""        mask : ArrayType1D, optional
             Boolean mask to apply before aggregation"""
-        
+
         if include_margins:
             param_docs += f"""
         margins : bool, default False
             Add margins (subtotals) to result"""
-        
+
         if include_numeric_only:
-            param_docs = f"""        numeric_only : bool, default True
+            param_docs = (
+                f"""        numeric_only : bool, default True
             Include only numeric columns
-""" + param_docs
-        
+"""
+                + param_docs
+            )
+
         if extra_params:
             param_docs = extra_params + "\n" + param_docs
-            
+
         func.__doc__ = f"""
         {description}.
         
@@ -62,21 +72,23 @@ def groupby_aggregation(description: str, extra_params: str = "", include_numeri
         pd.Series
             Series with group {method_name}s
         """
-        
+
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             # Call the core grouper method directly - it already returns proper pandas objects
             return func(self, *args, **kwargs)
-            
+
         return wrapper
+
     return decorator
 
 
 def groupby_cumulative(description: str):
     """Decorator for cumulative operations."""
+
     def decorator(func):
         method_name = func.__name__
-        
+
         func.__doc__ = f"""
         {description} for each group.
         
@@ -85,27 +97,36 @@ def groupby_cumulative(description: str):
         pd.Series
             Series with {method_name} values
         """
-        
+
         @wraps(func)
         def wrapper(self):
             # Call the core grouper method directly
             return func(self)
-            
+
         return wrapper
+
     return decorator
 
 
 class BaseGroupBy(ABC):
     """
     Abstract base class for pandas-plus GroupBy API classes.
-    
+
     This class contains common functionality shared between SeriesGroupBy
     and DataFrameGroupBy classes.
     """
 
-    def __init__(self, obj: Union[pd.Series, pd.DataFrame], by=None, level=None, grouper: Optional[GroupBy] = None):
-        if by is None and level is None and grouper is None :
-            raise ValueError("Must provide either 'by', 'level' or `grouper` for grouping")
+    def __init__(
+        self,
+        obj: Union[pd.Series, pd.DataFrame],
+        by=None,
+        level=None,
+        grouper: Optional[GroupBy] = None,
+    ):
+        if by is None and level is None and grouper is None:
+            raise ValueError(
+                "Must provide either 'by', 'level' or `grouper` for grouping"
+            )
 
         self._obj = obj
         self._by = by
@@ -159,7 +180,7 @@ class BaseGroupBy(ABC):
         """Dict mapping group names to row labels."""
         return self._grouper.groups
 
-    @property 
+    @property
     def ngroups(self) -> int:
         """Number of groups."""
         return self._grouper.ngroups
@@ -168,43 +189,59 @@ class BaseGroupBy(ABC):
         return f"{self.__class__.__name__}(ngroups={self.ngroups})"
 
     @groupby_aggregation("Compute sum of group values")
-    def sum(self, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def sum(
+        self, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.sum(self._obj, mask=mask, margins=margins)
 
     @groupby_aggregation("Compute mean of group values")
-    def mean(self, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def mean(
+        self, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.mean(self._obj, mask=mask, margins=margins)
 
     @groupby_aggregation(
         "Compute standard deviation of group values",
         extra_params="        ddof : int, default 1\n            Degrees of freedom",
     )
-    def std(self, ddof: int = 1, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def std(
+        self, ddof: int = 1, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.std(self._obj, ddof=ddof, mask=mask, margins=margins)
 
     @groupby_aggregation(
         "Compute variance of group values",
         extra_params="        ddof : int, default 1\n            Degrees of freedom",
     )
-    def var(self, ddof: int = 1, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def var(
+        self, ddof: int = 1, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.var(self._obj, ddof=ddof, mask=mask, margins=margins)
 
     @groupby_aggregation("Compute minimum of group values")
-    def min(self, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def min(
+        self, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.min(self._obj, mask=mask, margins=margins)
 
     @groupby_aggregation("Compute maximum of group values")
-    def max(self, mask: Optional[ArrayType1D] = None, margins: bool = False) -> pd.Series:
+    def max(
+        self, mask: Optional[ArrayType1D] = None, margins: bool = False
+    ) -> pd.Series:
         return self._grouper.max(self._obj, mask=mask, margins=margins)
 
     @groupby_aggregation(
-        "Compute count of non-null group values", include_numeric_only=False, include_margins=False
+        "Compute count of non-null group values",
+        include_numeric_only=False,
+        include_margins=False,
     )
     def count(self, mask: Optional[ArrayType1D] = None) -> pd.Series:
         return self._grouper.count(self._obj, mask=mask)
 
     @groupby_aggregation(
-        "Compute group sizes (including null values)", include_numeric_only=False, include_margins=False
+        "Compute group sizes (including null values)",
+        include_numeric_only=False,
+        include_margins=False,
     )
     def size(self, mask: Optional[ArrayType1D] = None) -> pd.Series:
         return self._grouper.size(mask=mask)
@@ -212,17 +249,21 @@ class BaseGroupBy(ABC):
     @groupby_aggregation(
         "Get first non-null value in each group",
         extra_params="        numeric_only : bool, default False\n            Include only numeric columns",
-        include_margins=False
+        include_margins=False,
     )
-    def first(self, numeric_only: bool = False, mask: Optional[ArrayType1D] = None) -> pd.Series:
+    def first(
+        self, numeric_only: bool = False, mask: Optional[ArrayType1D] = None
+    ) -> pd.Series:
         return self._grouper.first(self._obj, mask=mask)
 
     @groupby_aggregation(
         "Get last non-null value in each group",
         extra_params="        numeric_only : bool, default False\n            Include only numeric columns",
-        include_margins=False
+        include_margins=False,
     )
-    def last(self, numeric_only: bool = False, mask: Optional[ArrayType1D] = None) -> pd.Series:
+    def last(
+        self, numeric_only: bool = False, mask: Optional[ArrayType1D] = None
+    ) -> pd.Series:
         return self._grouper.last(self._obj, mask=mask)
 
     def nth(self, n: int) -> pd.Series:
@@ -357,10 +398,10 @@ class BaseGroupBy(ABC):
 class SeriesGroupBy(BaseGroupBy):
     """
     A pandas-like SeriesGroupBy class that uses pandas-plus GroupBy as the engine.
-    
+
     This class provides a familiar pandas interface while leveraging the optimized
     GroupBy implementation for better performance.
-    
+
     Parameters
     ----------
     obj : pd.Series
@@ -371,7 +412,7 @@ class SeriesGroupBy(BaseGroupBy):
     level : int, str, or sequence, optional
         If the Series has a MultiIndex, group by specific level(s) of the index.
         Can be level number(s) or name(s). If None, must specify by.
-    
+
     Examples
     --------
     Basic grouping:
@@ -384,7 +425,7 @@ class SeriesGroupBy(BaseGroupBy):
     A    9
     B   12
     dtype: int64
-    
+
     Level-based grouping:
     >>> idx = pd.MultiIndex.from_tuples([('A', 1), ('A', 2), ('B', 1)], names=['letter', 'num'])
     >>> s = pd.Series([10, 20, 30], index=idx)
@@ -394,23 +435,25 @@ class SeriesGroupBy(BaseGroupBy):
     B    30
     dtype: int64
     """
-    
-    def __init__(self, obj: pd.Series, by=None, level=None, grouper: Optional[GroupBy] = None):
+
+    def __init__(
+        self, obj: pd.Series, by=None, level=None, grouper: Optional[GroupBy] = None
+    ):
         if not isinstance(obj, pd.Series):
             raise TypeError("obj must be a pandas Series")
         super().__init__(obj, by=by, level=level, grouper=grouper)
-        
+
     def rolling(self, window: int, min_periods: Optional[int] = None):
         """
         Provide rolling window calculations within groups.
-        
+
         Parameters
         ----------
         window : int
             Size of the moving window
         min_periods : int, optional
             Minimum number of observations required to have a value
-            
+
         Returns
         -------
         SeriesGroupByRolling
@@ -422,11 +465,11 @@ class SeriesGroupBy(BaseGroupBy):
 class BaseGroupByRolling:
     """
     Base class for rolling window operations on GroupBy objects.
-    
+
     This class provides shared functionality for rolling window calculations
     within each group, reducing code duplication between Series and DataFrame
     rolling operations.
-    
+
     Parameters
     ----------
     groupby_obj : SeriesGroupBy or DataFrameGroupBy
@@ -437,74 +480,104 @@ class BaseGroupByRolling:
         Minimum number of observations required to have a value.
         Defaults to window size.
     """
-    
-    def __init__(self, groupby_obj: Union['SeriesGroupBy', 'DataFrameGroupBy'], 
-                 window: int, min_periods: Optional[int] = None):
+
+    def __init__(
+        self,
+        groupby_obj: Union["SeriesGroupBy", "DataFrameGroupBy"],
+        window: int,
+        min_periods: Optional[int] = None,
+    ):
         self._groupby_obj = groupby_obj
         self._window = window
         self._min_periods = min_periods if min_periods is not None else window
-        
-    def _apply_rolling_method(self, method_name: str):
+
+    def agg(self, method_name: str, mask: Optional[ArrayType1D] = None):
         """
         Apply a rolling method and return the result.
-        
+
         Parameters
         ----------
         method_name : str
             Name of the rolling method (e.g., 'sum', 'mean', 'min', 'max')
-            
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation
+
         Returns
         -------
         pd.Series or pd.DataFrame
             Result of the rolling operation
         """
         method = getattr(self._groupby_obj._grouper, f"rolling_{method_name}")
-        return method(self._groupby_obj._obj, window=self._window)
-        
-    def sum(self) -> Union[pd.Series, pd.DataFrame]:
+        return self._format_result(
+            method(self._groupby_obj._obj, window=self._window, mask=mask)
+        )
+
+    def sum(self, mask: Optional[ArrayType1D] = None) -> Union[pd.Series, pd.DataFrame]:
         """
         Calculate rolling sum within each group.
-        
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation
+
         Returns
         -------
         pd.Series or pd.DataFrame
             Rolling sum values with same shape as input
         """
-        return self._format_result(self._apply_rolling_method("sum"))
-        
-    def mean(self) -> Union[pd.Series, pd.DataFrame]:
+        return self.agg("sum", mask=mask)
+
+    def mean(
+        self, mask: Optional[ArrayType1D] = None
+    ) -> Union[pd.Series, pd.DataFrame]:
         """
         Calculate rolling mean within each group.
-        
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation
+
         Returns
         -------
         pd.Series or pd.DataFrame
             Rolling mean values with same shape as input
         """
-        return self._format_result(self._apply_rolling_method("mean"))
-        
-    def min(self) -> Union[pd.Series, pd.DataFrame]:
+        return self.agg("mean", mask=mask)
+
+    def min(self, mask: Optional[ArrayType1D] = None) -> Union[pd.Series, pd.DataFrame]:
         """
         Calculate rolling minimum within each group.
-        
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation
+
         Returns
         -------
         pd.Series or pd.DataFrame
             Rolling minimum values with same shape as input
         """
-        return self._format_result(self._apply_rolling_method("min"))
-        
-    def max(self) -> Union[pd.Series, pd.DataFrame]:
+        return self.agg("min", mask=mask)
+
+    def max(self, mask: Optional[ArrayType1D] = None) -> Union[pd.Series, pd.DataFrame]:
         """
         Calculate rolling maximum within each group.
-        
+
+        Parameters
+        ----------
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculation
+
         Returns
         -------
         pd.Series or pd.DataFrame
             Rolling maximum values with same shape as input
         """
-        return self._format_result(self._apply_rolling_method("max"))
-        
+        return self.agg("max", mask=mask)
+
     def _format_result(self, result) -> Union[pd.Series, pd.DataFrame]:
         """Format the result according to the specific GroupBy type."""
         raise NotImplementedError("Subclasses must implement _format_result")
@@ -513,24 +586,27 @@ class BaseGroupByRolling:
 class SeriesGroupByRolling(BaseGroupByRolling):
     """
     Rolling window operations for SeriesGroupBy objects.
-    
+
     This class provides rolling window calculations within each group,
     similar to pandas SeriesGroupBy.rolling().
     """
-    
+
     def _format_result(self, result) -> pd.Series:
         """Format result as a pandas Series."""
-        return (result if isinstance(result, pd.Series) 
-                else pd.Series(result, name=self._groupby_obj._obj.name))
+        return (
+            result
+            if isinstance(result, pd.Series)
+            else pd.Series(result, name=self._groupby_obj._obj.name)
+        )
 
 
 class DataFrameGroupBy(BaseGroupBy):
     """
     A pandas-like DataFrameGroupBy class that uses pandas-plus GroupBy as the engine.
-    
+
     This class provides a familiar pandas interface for DataFrame grouping operations
     while leveraging the optimized GroupBy implementation for better performance.
-    
+
     Parameters
     ----------
     obj : pd.DataFrame
@@ -541,7 +617,7 @@ class DataFrameGroupBy(BaseGroupBy):
     level : int, str, or sequence, optional
         If the DataFrame has a MultiIndex, group by specific level(s) of the index.
         Can be level number(s) or name(s). If None, must specify by.
-    
+
     Examples
     --------
     Basic grouping:
@@ -556,7 +632,9 @@ class DataFrameGroupBy(BaseGroupBy):
     Y   6  60
     """
 
-    def __init__(self, obj: pd.DataFrame, by=None, level=None, grouper: Optional[GroupBy] = None):
+    def __init__(
+        self, obj: pd.DataFrame, by=None, level=None, grouper: Optional[GroupBy] = None
+    ):
         if not isinstance(obj, pd.DataFrame):
             raise TypeError("obj must be a pandas DataFrame")
         super().__init__(obj, by=by, level=level, grouper=grouper)
@@ -564,12 +642,12 @@ class DataFrameGroupBy(BaseGroupBy):
     def __getitem__(self, key):
         """
         Select column(s) from the grouped DataFrame.
-        
+
         Parameters
         ----------
         key : str or list
             Column name(s) to select
-            
+
         Returns
         -------
         SeriesGroupBy or DataFrameGroupBy
@@ -582,18 +660,18 @@ class DataFrameGroupBy(BaseGroupBy):
         else:
             # Multiple columns - return DataFrameGroupBy with subset
             return DataFrameGroupBy(subset, grouper=self._grouper)
-    
+
     def rolling(self, window: int, min_periods: Optional[int] = None):
         """
         Provide rolling window calculations within groups.
-        
+
         Parameters
         ----------
         window : int
             Size of the moving window
         min_periods : int, optional
             Minimum number of observations required to have a value
-            
+
         Returns
         -------
         DataFrameGroupByRolling
@@ -605,13 +683,12 @@ class DataFrameGroupBy(BaseGroupBy):
 class DataFrameGroupByRolling(BaseGroupByRolling):
     """
     Rolling window operations for DataFrameGroupBy objects.
-    
+
     This class provides rolling window calculations within each group,
-    similar to pandas DataFrameGroupBy.rolling(). It inherits from 
+    similar to pandas DataFrameGroupBy.rolling(). It inherits from
     BaseGroupByRolling to reduce code duplication.
     """
-    
+
     def _format_result(self, result) -> pd.DataFrame:
         """Format result as a pandas DataFrame."""
-        return (result if isinstance(result, pd.DataFrame) 
-                else pd.DataFrame(result))
+        return result if isinstance(result, pd.DataFrame) else pd.DataFrame(result)
