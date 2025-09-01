@@ -545,6 +545,7 @@ def group_count(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     """Count the number of non-null values in each group.
     Parameters
@@ -588,6 +589,7 @@ def group_sum(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     return _group_func_wrap("nansum", **locals())
 
@@ -598,13 +600,16 @@ def group_mean(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
-    sum_, count = _group_func_wrap("nansum", **locals(), return_count=True)
+    kwargs = locals().copy()
+    kwargs["return_count"] = True
+    sum_, count = _group_func_wrap("nansum", **kwargs)
     sum_, orig_type = _maybe_cast_timestamp_arr(sum_)
     mean = sum_ / count
     if orig_type.kind in "mM":
         mean = mean.astype(orig_type)
-    return mean
+    return (mean, count) if return_count else mean
 
 
 def group_min(
@@ -613,6 +618,7 @@ def group_min(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     return _group_func_wrap("nanmin", **locals())
 
@@ -623,6 +629,7 @@ def group_max(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     return _group_func_wrap("nanmax", **locals())
 
@@ -633,6 +640,7 @@ def group_first(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     return _group_func_wrap("first", **locals())
 
@@ -643,6 +651,7 @@ def group_last(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     n_threads: int = 1,
+    return_count: bool = False,
 ):
     return _group_func_wrap("last", **locals())
 

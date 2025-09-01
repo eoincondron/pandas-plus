@@ -348,12 +348,15 @@ class GroupBy:
         """
         func = getattr(numba_funcs, f"group_{func_name}")
         arg_dict, common_index = self._build_arg_list_for_function(
-            func, values=values, mask=mask
+            func,
+            values=values,
+            mask=mask,
+            return_count=True,
         )
         results = parallel_map(func, arg_dict.values())
 
         out_dict = {}
-        for key, result in zip(arg_dict, results):
+        for key, (result, count) in zip(arg_dict, results):
             if transform:
                 result = out_dict[key] = pd.Series(
                     result[self.group_ikey], common_index
@@ -369,11 +372,18 @@ class GroupBy:
                     out.name = None
 
         if not transform:
-            if mask is not None:
-                observed = self.size(mask=mask, observed_only=False) > 0
-            else:
-                observed = self.key_count > 0
-            out = out.loc[observed]
+            observed = count[:len(out)] > 0
+            if not observed.all():
+                # necessary but not sufficient condition for a group to be completely masked. 
+                # count == 0 can mean an group contains only null values so here we calculate the key counts.  
+                # Could optimize further by adding key count to numba functions outputs. 
+                if mask is not None:
+                    observed = self.size(mask=mask, observed_only=False) > 0
+                else:
+                    observed = self.key_count > 0
+
+                out = out.loc[observed]
+
             if self._sort:
                 out.sort_index(inplace=True)
 
