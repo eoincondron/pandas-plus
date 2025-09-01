@@ -168,19 +168,19 @@ class GroupBy:
 
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
         self._key_index = _validate_input_lengths_and_indexes(group_key_list)
-
         if len(group_key_list) == 1:
-            self._group_ikey, self._result_index = factorize_1d(
-                group_key_list[0], sort=sort
-            )
+            self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
+            dtype = group_key_list[0].dtype
+            if isinstance(dtype, pd.CategoricalDtype) or "dictionary" in str(dtype):
+                sort = False
         else:
-            self._group_ikey, self._result_index = factorize_2d(
-                *group_key_list, sort=sort
-            )
+            self._group_ikey, self._result_index = factorize_2d(*group_key_list)
 
         self._result_index.names = [
             None if isinstance(key, TempName) else key for key in group_key_names
         ]
+
+        self._sort = sort
 
     @property
     def ngroups(self):
@@ -384,6 +384,8 @@ class GroupBy:
             else:
                 observed = self.key_count > 0
             out = out.loc[observed]
+            if self._sort:
+                out.sort_index(inplace=True)
 
         if margins:
             out = self._add_margins(out, margins=margins, func_name=func_name)
@@ -623,6 +625,8 @@ class GroupBy:
             result.index = self.result_index[result.index]
             if len(value_list) == 1 and isinstance(values, ArrayType1D):
                 result = result.iloc[:, 0]
+        if self._sort:
+            result.sort_index(inplace=True)
         return result
 
     @groupby_method

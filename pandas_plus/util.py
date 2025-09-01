@@ -804,7 +804,9 @@ def factorize_1d(
                 sort_idx = np.argsort(uniques)
                 uniques = uniques[sort_idx]
                 # Remap codes
+                null = codes == -1
                 codes[:] = np.argsort(sort_idx)[codes]
+                codes[null] = -1
             except (TypeError, ValueError):
                 # If sorting fails, just return unsorted
                 pass

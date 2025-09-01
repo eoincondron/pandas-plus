@@ -7,6 +7,7 @@ pandas-plus GroupBy engine for better performance while maintaining full compati
 
 from typing import Optional, Union, List
 import pandas as pd
+import numpy as np
 from functools import wraps
 
 from .core import GroupBy, ArrayCollection, ArrayType1D
