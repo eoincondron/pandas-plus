@@ -137,39 +137,31 @@ class BaseGroupBy(ABC):
             self._grouper = grouper
             return
 
-        # Build the grouping keys (by first to match pandas order)
-        grouping_keys = []
-
-        # Handle by-based grouping first
-        if by is not None:
-            if isinstance(by, (list, tuple)):
-                grouping_keys.extend(by)
-            else:
-                grouping_keys.append(by)
-
-        # Handle level-based grouping
-        if level is not None:
-            if isinstance(level, (list, tuple)):
-                # Multiple levels
-                for lvl in level:
-                    if isinstance(lvl, str):
-                        # Level name
-                        level_idx = obj.index.names.index(lvl)
-                    else:
-                        # Level number
-                        level_idx = lvl
-                    grouping_keys.append(obj.index.get_level_values(level_idx))
-            else:
-                # Single level
-                if isinstance(level, str):
-                    # Level name
-                    level_idx = obj.index.names.index(level)
-                else:
-                    # Level number
-                    level_idx = level
-                grouping_keys.append(obj.index.get_level_values(level_idx))
-
+        # Use specialized method to process by/level arguments
+        grouping_keys = self._process_by_argument(by, level)
         self._grouper = GroupBy(grouping_keys)
+
+    @abstractmethod
+    def _process_by_argument(self, by, level):
+        """
+        Process by and level arguments into a list of grouping keys.
+
+        This method should be implemented by subclasses to handle their specific
+        column/index naming conventions and data structures.
+
+        Parameters
+        ----------
+        by : various types
+            Grouping key(s), can be column names, arrays, callables, etc.
+        level : various types
+            Index level name(s) or number(s) for MultiIndex grouping
+
+        Returns
+        -------
+        list
+            List of grouping arrays/keys for GroupBy constructor
+        """
+        pass
 
     @property
     def grouper(self) -> GroupBy:
@@ -444,6 +436,94 @@ class SeriesGroupBy(BaseGroupBy):
             raise TypeError("obj must be a pandas Series")
         super().__init__(obj, by=by, level=level, grouper=grouper)
 
+    def _process_by_argument(self, by, level):
+        """
+        Process by and level arguments for SeriesGroupBy.
+
+        For Series, we handle:
+        - by: arrays, lists, callables, or other Series
+        - level: index level names or numbers for MultiIndex
+
+        Parameters
+        ----------
+        by : various types
+            Grouping key(s), can be arrays, Series, callables, etc.
+        level : various types
+            Index level name(s) or number(s) for MultiIndex grouping
+
+        Returns
+        -------
+        list
+            List of grouping arrays/keys for GroupBy constructor
+        """
+        grouping_keys = []
+
+        # Process by argument first (to match pandas order)
+        if by is not None:
+            if isinstance(by, (list, tuple)):
+                grouping_keys.extend(by)
+            else:
+                grouping_keys.append(by)
+
+        # Process level argument
+        if level is not None:
+            level_keys = self._resolve_index_levels(level)
+            grouping_keys.extend(level_keys)
+
+        return grouping_keys
+
+    def _resolve_index_levels(self, level):
+        """
+        Resolve index level references to actual level values.
+
+        Parameters
+        ----------
+        level : various types
+            Level specification (name, number, list of names/numbers)
+
+        Returns
+        -------
+        list
+            List of index level value arrays
+        """
+        if not isinstance(level, (list, tuple)):
+            level = [level]
+
+        level_keys = []
+        index = self._obj.index
+
+        for lvl in level:
+            if isinstance(index, pd.MultiIndex):
+                # MultiIndex case - resolve level name/number
+                if isinstance(lvl, str):
+                    # Level name - find in names
+                    if lvl not in index.names:
+                        raise KeyError(
+                            f"Level '{lvl}' not found in index names: {index.names}"
+                        )
+                    level_idx = index.names.index(lvl)
+                else:
+                    # Level number - validate range
+                    level_idx = int(lvl)
+                    if level_idx < 0:
+                        level_idx += index.nlevels
+                    if level_idx < 0 or level_idx >= index.nlevels:
+                        raise IndexError(
+                            f"Level {lvl} out of bounds for {index.nlevels} levels"
+                        )
+
+                level_values = index.get_level_values(level_idx)
+            else:
+                # Regular Index case
+                if lvl == 0 or lvl == index.name:
+                    level_values = index
+                else:
+                    raise ValueError(f"Level '{lvl}' not valid for non-MultiIndex")
+
+            level_keys.append(level_values)
+
+        return level_keys
+
     def rolling(self, window: int, min_periods: Optional[int] = None):
         """
         Provide rolling window calculations within groups.
@@ -639,6 +719,165 @@ class DataFrameGroupBy(BaseGroupBy):
         if not isinstance(obj, pd.DataFrame):
             raise TypeError("obj must be a pandas DataFrame")
         super().__init__(obj, by=by, level=level, grouper=grouper)
+
+    def _process_by_argument(self, by, level):
+        """
+        Process by and level arguments for DataFrameGroupBy.
+
+        For DataFrame, we handle:
+        - by: column names (any hashable type), arrays, Series, callables
+        - level: index level names or numbers for MultiIndex
+        - Proper resolution of column names including non-string types
+
+        Parameters
+        ----------
+        by : various types
+            Grouping key(s), can be column names, arrays, Series, callables, etc.
+        level : various types
+            Index level name(s) or number(s) for MultiIndex grouping
+
+        Returns
+        -------
+        list
+            List of grouping arrays/keys for GroupBy constructor
+        """
+        grouping_keys = []
+
+        # Process by argument first (to match pandas order)
+        if by is not None:
+            by_keys = self._resolve_by_keys(by)
+            grouping_keys.extend(by_keys)
+
+        # Process level argument
+        if level is not None:
+            level_keys = self._resolve_index_levels(level)
+            grouping_keys.extend(level_keys)
+
+        return grouping_keys
+
+    def _resolve_by_keys(self, by):
+        """
+        Resolve by keys for DataFrame, handling column name resolution.
+
+        Parameters
+        ----------
+        by : various types
+            Single key or list of keys to group by
+
+        Returns
+        -------
+        list
+            List of resolved grouping arrays
+        """
+        # Special case: if by is a tuple and it's a valid column name, treat as single key
+        if isinstance(by, tuple) and by in self._obj.columns:
+            by = [by]
+        elif not isinstance(by, (list, tuple)):
+            by = [by]
+
+        resolved_keys = []
+
+        for key in by:
+            # Check for array-like objects first (before checking columns, since arrays aren't hashable)
+            if hasattr(key, "__iter__") and not isinstance(key, (str, bytes, tuple)):
+                # Array-like object (not string or tuple) - use directly
+                if hasattr(key, "__len__") and len(key) != len(self._obj):
+                    raise ValueError(
+                        f"Length of grouper ({len(key)}) != length of DataFrame ({len(self._obj)})"
+                    )
+                resolved_keys.append(key)
+
+            elif callable(key):
+                # Callable - apply to index
+                resolved_keys.append(self._obj.index.map(key))
+
+            else:
+                # Try to use as column name (including tuple column names)
+                try:
+                    if key in self._obj.columns:
+                        resolved_keys.append(self._obj[key])
+                    elif (
+                        hasattr(self._obj.index, "names")
+                        and key in self._obj.index.names
+                    ):
+                        # It's an index level name
+                        if isinstance(self._obj.index, pd.MultiIndex):
+                            level_idx = self._obj.index.names.index(key)
+                            resolved_keys.append(
+                                self._obj.index.get_level_values(level_idx)
+                            )
+                        else:
+                            # Single level index
+                            resolved_keys.append(self._obj.index)
+                    else:
+                        raise KeyError(f"Column or index level '{key}' not found")
+                except TypeError:
+                    # Unhashable type - treat as array-like if it has proper length
+                    if hasattr(key, "__len__") and len(key) == len(self._obj):
+                        resolved_keys.append(key)
+                    else:
+                        raise KeyError(f"Invalid grouping key: {key}")
+
+        return resolved_keys
+
+    def _resolve_index_levels(self, level):
+        """
+        Resolve index level references to actual level values for DataFrame.
+
+        Parameters
+        ----------
+        level : various types
+            Level specification (name, number, list of names/numbers)
+
+        Returns
+        -------
+        list
+            List of index level value arrays
+        """
+        if not isinstance(level, (list, tuple)):
+            level = [level]
+
+        level_keys = []
+        index = self._obj.index
+
+        for lvl in level:
+            if isinstance(index, pd.MultiIndex):
+                # MultiIndex case - resolve level name/number
+                try:
+                    if isinstance(lvl, str) or not isinstance(lvl, (int, np.integer)):
+                        # Level name - check if it exists in names
+                        if lvl not in index.names:
+                            raise KeyError(
+                                f"Level '{lvl}' not found in index names: {index.names}"
+                            )
+                        level_idx = index.names.index(lvl)
+                    else:
+                        # Level number - validate range
+                        level_idx = int(lvl)
+                        if level_idx < 0:
+                            level_idx += index.nlevels
+                        if level_idx < 0 or level_idx >= index.nlevels:
+                            raise IndexError(
+                                f"Level {lvl} out of bounds for {index.nlevels} levels"
+                            )
+
+                    level_values = index.get_level_values(level_idx)
+                except (KeyError, IndexError, ValueError) as e:
+                    raise type(e)(
+                        f"Invalid level specification '{lvl}': {str(e)}"
+                    ) from e
+            else:
+                # Regular Index case
+                if lvl == 0 or lvl == index.name:
+                    level_values = index
+                else:
+                    raise ValueError(
+                        f"Level '{lvl}' not valid for non-MultiIndex. Available: [0, '{index.name}']"
+                    )
+
+            level_keys.append(level_values)
+
+        return level_keys
 
     def __getitem__(self, key):
         """
