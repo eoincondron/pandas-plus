@@ -1,24 +1,23 @@
 # pandas-plus
 
-A high-performance extension package for pandas that provides fast groupby operations using NumPy and Numba acceleration.
+A high-performance extension package for pandas that provides fast groupby operations using NumPy and Numba acceleration intended for large data sets. Performance improvements increase as data is scaled up (see benchmarking below). It also provides a more flexible API and convenience methods in the group-by space like adding margins and calculating ratios. 
 
 ## Overview
 
-pandas-plus enhances pandas' groupby functionality with optimized implementations that leverage NumPy arrays and Numba's just-in-time compilation for significant performance improvements. The package is designed to work seamlessly with pandas DataFrames and Series while providing additional flexibility for various array types.
+```pandas-plus``` enhances Pandas groupby functionality with optimized implementations that leverage NumPy arrays and Numba's just-in-time compilation for significant performance improvements. The package is designed to work seamlessly with pandas DataFrames and Series while providing additional flexibility for various array types.
 
 ## Key Features
 
-- **High Performance**: Numba-accelerated groupby operations for faster computations
-- **Flexible Input Types**: Support for NumPy arrays, pandas Series/DataFrames, and Polars Series
-- **Memory Efficient**: Optimized memory usage for large datasets
+- **Flexible Input Types**: Support for NumPy arrays, pandas Series/DataFrames backed by NumPy or Arrow, and Polars Series/DataFrames
+- **Memory Efficient**: Inline filtering such that DataFrames do not have to be filtered before group-by operations
 - **Pandas Compatible**: Results are returned as pandas Series/DataFrames
-- **Multi-threading**: Automatic parallelization for large datasets
+- **Multi-threading**: Automatic parallelization for large datasets across both row and column axes
 
 ## Installation
 
 ```bash
 # Install dependencies
-pip install numpy pandas numba polars
+conda install pandas-plus
 ```
 
 ## The GroupBy Class
@@ -53,13 +52,14 @@ print(result)
 
 The GroupBy class supports various aggregation functions:
 
-- `sum()` - Sum of values in each group
-- `mean()` - Average of values in each group  
-- `min()` - Minimum value in each group
-- `max()` - Maximum value in each group
+- `sum()/mean()` - Sum/mean of values in each group
+- `min()/max()` - Min/Max value in each group
+ - `var()/std()` - Variance/Std. Dev. of values in each group
 - `count()` - Count of non-null values in each group
 - `size()` - Total count of values in each group (including nulls)
 - `median()` - Median value in each group
+
+`GroupBy` also support cumulative group-by methods and rolling group-by methods
 
 ### Working with Pandas Data
 
