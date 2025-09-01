@@ -1082,10 +1082,10 @@ class TestFactorize1D:
         values = [True, False, True, False, True]
         codes, labels = factorize_1d(values)
 
-        expected_codes = np.array([0, 1, 0, 1, 0])
+        expected_codes = np.array([1, 0, 1, 0, 1])
         np.testing.assert_array_equal(codes, expected_codes)
 
-        expected_labels = [True, False]
+        expected_labels = [False, True]
         np.testing.assert_array_equal(labels, expected_labels)
 
     def test_duplicates_preserved(self):
@@ -1340,7 +1340,7 @@ class TestFactorize1DComprehensive:
         [
             ([1, 2, 3, 1, 2, 3], [0, 1, 2, 0, 1, 2], [1, 2, 3]),
             (["a", "b", "c", "a", "b"], [0, 1, 2, 0, 1], ["a", "b", "c"]),
-            ([True, False, True, True, False], [0, 1, 0, 0, 1], [True, False]),
+            ([True, False, True, True, False], [1, 0, 1, 1, 0], [False, True]),
             ([42], [0], [42]),
             ([42, 42, 42, 42], [0, 0, 0, 0], [42]),
             (

@@ -788,33 +788,23 @@ def factorize_1d(
         return factorize_arrow_arr(values)
     if not isinstance(values, pd.Series):
         values = pd.Series(values)
-    try:
-        return np.asarray(values.cat.codes), values.cat.categories
-    except AttributeError:
-        # Simplified approach to avoid all Series boolean issues
-        # Convert sort parameter to explicit boolean to avoid any ambiguity
-        do_sort = bool(sort) if not isinstance(sort, pd.Series) else False
 
-        # Always use pandas factorize without sort to avoid the issue
-        if isinstance(values, pd.Series):
-            raw_values = values.values
-        else:
-            raw_values = values
-
-        codes, uniques = pd.factorize(raw_values, use_na_sentinel=True)
+    if isinstance(values.dtype, pd.CategoricalDtype):
+        codes = np.asarray(values.cat.codes)
+        labels = pd.Index(values.cat.categories)
+        return codes, labels
+    elif pd.api.types.is_bool_dtype(values):
+        return np.asarray(values.view("int8")), pd.Index([False, True])
+    else:
+        codes, uniques = pd.factorize(values.values, use_na_sentinel=True)
 
         # Handle sorting manually if needed
-        if do_sort and len(uniques) > 0:
+        if sort and len(uniques) > 0:
             try:
                 sort_idx = np.argsort(uniques)
                 uniques = uniques[sort_idx]
                 # Remap codes
-                old_to_new = {
-                    old_idx: new_idx for new_idx, old_idx in enumerate(sort_idx)
-                }
-                codes = np.array(
-                    [old_to_new[code] if code >= 0 else -1 for code in codes]
-                )
+                codes[:] = np.argsort(sort_idx)[codes]
             except (TypeError, ValueError):
                 # If sorting fails, just return unsorted
                 pass
