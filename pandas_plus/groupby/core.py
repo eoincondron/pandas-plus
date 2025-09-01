@@ -12,7 +12,6 @@ from . import numba as numba_funcs
 from ..util import (
     ArrayType1D,
     ArrayType2D,
-    TempName,
     factorize_1d,
     factorize_2d,
     convert_data_to_arr_list_and_keys,
@@ -176,10 +175,6 @@ class GroupBy:
         else:
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
 
-        self._result_index.names = [
-            None if isinstance(key, TempName) else key for key in group_key_names
-        ]
-
         self._sort = sort
 
     @property
@@ -271,12 +266,6 @@ class GroupBy:
                 ),
             )
 
-        if len(set(value_names)) != len(value_names):
-            raise ValueError(
-                "Values must have unique names. "
-                f"Found duplicates: {set(value_names)}"
-            )
-
         to_check = value_list + [self.group_ikey]
         if mask is not None:
             to_check.append(mask)
@@ -323,7 +312,8 @@ class GroupBy:
         bound_args = [
             signature(func).bind(values=x, **shared_kwargs) for x in value_list
         ]
-        arg_dict = {name: args.args for name, args in zip(value_names, bound_args)}
+        keys = (name if name else f"_arr_{i}" for i, name in enumerate(value_names))
+        arg_dict = {key: args.args for key, args in zip(keys, bound_args)}
 
         return arg_dict, common_index
 

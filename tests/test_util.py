@@ -84,7 +84,7 @@ class TestArrayFunctions:
         ]
 
         result_arrs, result_names = convert_data_to_arr_list_and_keys(arrays)
-        assert result_names == ["_arr_0", "_arr_1"]
+        assert result_names == [None, None]
 
         for left, right in zip(result_arrs, arrays):
             np.testing.assert_array_equal(left, right)
@@ -107,13 +107,13 @@ class TestArrayFunctions:
         arr = np.array([1, 2, 3])
         result_arrs, result_names = convert_data_to_arr_list_and_keys(arr)
 
-        assert ["_arr_0"] == result_names
+        assert [None] == result_names
         np.testing.assert_array_equal(result_arrs[0], arr)
 
         # Test with 2D numpy array (should return empty dict as per function logic)
         arr_2d = np.array([[1, 2], [3, 4]])
         result_arrs, result_names = convert_data_to_arr_list_and_keys(arr_2d)
-        assert result_names == ["_arr_0", "_arr_1"]
+        assert result_names == [None, None]
 
         for i in range(2):
             np.testing.assert_array_equal(result_arrs[i], arr_2d[:, i])
@@ -129,7 +129,7 @@ class TestArrayFunctions:
         # Test with unnamed pandas Series
         series = pd.Series([1, 2, 3])
         result_arrs, result_names = convert_data_to_arr_list_and_keys(series)
-        assert ["_arr_0"] == result_names
+        assert [None] == result_names
         pd.testing.assert_series_equal(result_arrs[0], series)
 
         # Test with polars Series

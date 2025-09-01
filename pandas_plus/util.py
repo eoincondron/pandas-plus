@@ -392,9 +392,6 @@ def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
     return name
 
 
-class TempName(str): ...
-
-
 def series_is_numeric(series: pl.Series | pd.Series):
     dtype = series.dtype
     if isinstance(series, pl.Series):
@@ -435,16 +432,11 @@ def convert_data_to_arr_list_and_keys(
         return list(array.values()), list(array.keys())
     elif isinstance(data, (tuple, list)):
         names = map(get_array_name, data)
-        names = [
-            name or TempName(f"{temp_name_root}{i}") for i, name in enumerate(names)
-        ]
-        return list(data), names
+        return list(data), list(names)
     elif isinstance(data, np.ndarray) and data.ndim == 2:
         return convert_data_to_arr_list_and_keys(list(data.T))
     elif isinstance(data, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)):
         name = get_array_name(data)
-        if name is None:
-            name = TempName(f"{temp_name_root}0")
         return [data], [name]
     elif isinstance(data, (pl.DataFrame, pl.LazyFrame, pd.DataFrame)):
         if isinstance(data, pl.LazyFrame):
@@ -668,6 +660,7 @@ def factorize_arrow_arr(
     """
     Method for factorizing the arrow arrays, including polars Series and Pandas Series backed by pyarrow
     """
+    name = get_array_name(arr)
     if isinstance(arr, pl.Series):
         arr = arr.to_arrow()
     elif isinstance(arr, pd.Series):
@@ -676,9 +669,11 @@ def factorize_arrow_arr(
     arr = arr.dictionary_encode()
     if isinstance(arr, pa.ChunkedArray):
         arr = arr.combine_chunks()
-    return arr.indices.to_numpy(zero_copy_only=False), pd.Index(
-        arr.dictionary.to_numpy(zero_copy_only=False)
-    )
+
+    codes = arr.indices.to_numpy(zero_copy_only=False)
+    labels = pd.Index(arr.dictionary.to_numpy(zero_copy_only=False), name=name)
+
+    return codes, labels
 
 
 def factorize_1d(
@@ -786,6 +781,7 @@ def factorize_1d(
         hasattr(values, "dtype") and isinstance(values.dtype, pd.ArrowDtype)
     ):
         return factorize_arrow_arr(values)
+
     if not isinstance(values, pd.Series):
         values = pd.Series(values)
 
