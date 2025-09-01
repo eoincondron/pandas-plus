@@ -840,9 +840,9 @@ def _rolling_sum_or_mean_1d(
     # Track rolling sums and circular buffers for each group
     group_sums = np.zeros(ngroups)
     group_buffers = np.full((ngroups, window), null_value)
-    group_positions = np.zeros(ngroups, dtype=np.uint8)
-    group_non_null = np.zeros(ngroups, dtype=np.uint8)
-    group_n_seen = np.zeros(ngroups, dtype=np.uint8)
+    group_positions = np.zeros(ngroups, dtype=np.int16)
+    group_non_null = np.zeros(ngroups, dtype=np.int16)
+    group_n_seen = np.zeros(ngroups, dtype=np.int16)
     i = -1
 
     for arr in values:
@@ -1037,11 +1037,11 @@ def _rolling_max_or_min_1d(
 
     # Track rolling max/min and its position in circular buffers for each group
     current_best = np.full(ngroups, -np.inf if want_max else np.inf)
-    pos_of_current_best = np.zeros(ngroups, dtype=np.uint8)
+    pos_of_current_best = np.zeros(ngroups, dtype=np.int16)
     group_buffers = np.full((ngroups, window), null_value)
-    group_buffer_pos = np.zeros(ngroups, dtype=np.uint8)
-    group_non_null = np.zeros(ngroups, dtype=np.uint8)
-    group_n_seen = np.zeros(ngroups, dtype=np.uint8)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.int16)
+    group_non_null = np.zeros(ngroups, dtype=np.int16)
+    group_n_seen = np.zeros(ngroups, dtype=np.int16)
 
     i = -1
     for arr in values:
@@ -1195,8 +1195,8 @@ def _rolling_shift_or_diff_1d(
 
     # Track rolling sums and circular buffers for each group
     group_buffers = np.full((ngroups, window), null_value)
-    group_buffer_pos = np.zeros(ngroups, dtype=np.uint8)
-    group_counts = np.zeros(ngroups, dtype=np.int64)
+    group_buffer_pos = np.zeros(ngroups, dtype=np.int16)
+    group_counts = np.zeros(ngroups, dtype=np.int16)
 
     i = -1
     for arr in values:
@@ -1217,12 +1217,12 @@ def _rolling_shift_or_diff_1d(
                     out[i] = group_buffers[key, pos]
                 else:
                     out[i] = val - group_buffers[key, pos]
+            else:
+                group_counts[key] += 1
 
             group_buffers[key, pos] = val
-
             # Update position
             group_buffer_pos[key] = (pos + 1) % window
-            group_counts[key] += 1
 
     return out
 
