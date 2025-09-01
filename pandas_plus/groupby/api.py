@@ -879,6 +879,12 @@ class DataFrameGroupBy(BaseGroupBy):
 
         return level_keys
 
+    def __getattr__(self, name: str):
+        try:
+            return self[name]
+        except KeyError:
+            return super().__getattribute__(name)
+
     def __getitem__(self, key):
         """
         Select column(s) from the grouped DataFrame.
