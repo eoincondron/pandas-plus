@@ -198,11 +198,7 @@ def _chunk_groupby_args(
     kwargs = locals().copy()
     del kwargs["n_chunks"]
     shared_kwargs = {"target": target}
-    if reduce_func is None:
-        iterator = _group_by_counter
-    else:
-        iterator = _group_by_reduce
-        shared_kwargs["reduce_func"] = reduce_func
+    shared_kwargs["reduce_func"] = reduce_func
 
     chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
     for name in ["group_key", "values", "mask"]:
@@ -213,7 +209,7 @@ def _chunk_groupby_args(
         for chunk_no, arr in enumerate(chunks):
             chunked_kwargs[chunk_no][name] = arr
 
-    chunked_args = [signature(iterator).bind(**kwargs) for kwargs in chunked_kwargs]
+    chunked_args = [signature(_group_by_reduce).bind(**kwargs) for kwargs in chunked_kwargs]
 
     return chunked_args
 
