@@ -323,7 +323,6 @@ class TestNullValueForArrayType:
         null_value = _null_value_for_numpy_type(arr.dtype)
         assert null_value == np.iinfo(np.uint32).max
 
-
     def test_null_value_for_complex(self):
         """Test null value for complex array - should raise TypeError"""
         arr = np.array([1 + 2j, 3 + 4j], dtype=complex)

@@ -5,12 +5,12 @@ This module provides familiar pandas-like interfaces that utilize the optimized
 pandas-plus GroupBy engine for better performance while maintaining full compatibility.
 """
 
-from typing import Optional, Union, List
+from typing import Optional, Union
 import pandas as pd
 import numpy as np
 from functools import wraps
 
-from .core import GroupBy, ArrayCollection, ArrayType1D
+from .core import GroupBy, ArrayType1D
 from abc import ABC, abstractmethod
 
 
@@ -43,17 +43,17 @@ def groupby_aggregation(
         method_name = func.__name__
 
         # Generate docstring
-        param_docs = f"""        mask : ArrayType1D, optional
+        param_docs = """        mask : ArrayType1D, optional
             Boolean mask to apply before aggregation"""
 
         if include_margins:
-            param_docs += f"""
+            param_docs += """
         margins : bool, default False
             Add margins (subtotals) to result"""
 
         if include_numeric_only:
             param_docs = (
-                f"""        numeric_only : bool, default True
+                """        numeric_only : bool, default True
             Include only numeric columns
 """
                 + param_docs
@@ -64,10 +64,10 @@ def groupby_aggregation(
 
         func.__doc__ = f"""
         {description}.
-        
+
         Parameters
         ----------{param_docs}
-            
+
         Returns
         -------
         pd.Series
@@ -76,7 +76,8 @@ def groupby_aggregation(
 
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            # Call the core grouper method directly - it already returns proper pandas objects
+            # Call the core grouper method directly - it already returns
+            # proper pandas objects
             return func(self, *args, **kwargs)
 
         return wrapper
@@ -92,7 +93,7 @@ def groupby_cumulative(description: str):
 
         func.__doc__ = f"""
         {description} for each group.
-        
+
         Returns
         -------
         pd.Series
@@ -241,7 +242,10 @@ class BaseGroupBy(ABC):
 
     @groupby_aggregation(
         "Get first non-null value in each group",
-        extra_params="        numeric_only : bool, default False\n            Include only numeric columns",
+        extra_params=(
+            "        numeric_only : bool, default False\n"
+            "            Include only numeric columns"
+        ),
         include_margins=False,
     )
     def first(
@@ -251,7 +255,10 @@ class BaseGroupBy(ABC):
 
     @groupby_aggregation(
         "Get last non-null value in each group",
-        extra_params="        numeric_only : bool, default False\n            Include only numeric columns",
+        extra_params=(
+            "        numeric_only : bool, default False\n"
+            "            Include only numeric columns"
+        ),
         include_margins=False,
     )
     def last(
@@ -420,7 +427,7 @@ class SeriesGroupBy(BaseGroupBy):
     dtype: int64
 
     Level-based grouping:
-    >>> idx = pd.MultiIndex.from_tuples([('A', 1), ('A', 2), ('B', 1)], names=['letter', 'num'])
+    >>> idx = pd.MultiIndex.from_tuples(\n    ...     [('A', 1), ('A', 2), ('B', 1)],\n    ...     names=['letter', 'num'])
     >>> s = pd.Series([10, 20, 30], index=idx)
     >>> gb = SeriesGroupBy(s, level='letter')
     >>> gb.sum()
@@ -769,7 +776,8 @@ class DataFrameGroupBy(BaseGroupBy):
         list
             List of resolved grouping arrays
         """
-        # Special case: if by is a tuple and it's a valid column name, treat as single key
+        # Special case: if by is a tuple and it's a valid column name,
+        # treat as single key
         if isinstance(by, tuple) and by in self._obj.columns:
             by = [by]
         elif not isinstance(by, (list, tuple)):
@@ -778,12 +786,15 @@ class DataFrameGroupBy(BaseGroupBy):
         resolved_keys = []
 
         for key in by:
-            # Check for array-like objects first (before checking columns, since arrays aren't hashable)
-            if hasattr(key, "__iter__") and not isinstance(key, (str, bytes, tuple)):
+            # Check for array-like objects first (before checking columns,
+            # since arrays aren't hashable)
+            if (hasattr(key, "__iter__") and
+                    not isinstance(key, (str, bytes, tuple))):
                 # Array-like object (not string or tuple) - use directly
                 if hasattr(key, "__len__") and len(key) != len(self._obj):
                     raise ValueError(
-                        f"Length of grouper ({len(key)}) != length of DataFrame ({len(self._obj)})"
+                        f"Length of grouper ({len(key)}) != "
+                        f"length of DataFrame ({len(self._obj)})"
                     )
                 resolved_keys.append(key)
 
@@ -872,7 +883,8 @@ class DataFrameGroupBy(BaseGroupBy):
                     level_values = index
                 else:
                     raise ValueError(
-                        f"Level '{lvl}' not valid for non-MultiIndex. Available: [0, '{index.name}']"
+                        f"Level '{lvl}' not valid for non-MultiIndex. "
+                        f"Available: [0, '{index.name}']"
                     )
 
             level_keys.append(level_values)

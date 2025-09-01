@@ -425,9 +425,9 @@ class TestNullChecks:
 
     def test_is_null_with_numbers(self):
         """Test that _is_null returns False for valid numbers."""
-        assert is_null(0.0) == False
-        assert is_null(-1.5) == False
-        assert is_null(1e10) == False
+        assert not is_null(0.0)
+        assert not is_null(-1.5)
+        assert not is_null(1e10)
 
     def test_is_null_with_min_int(self):
         """Test that is_null identifies MIN_INT correctly."""
@@ -435,9 +435,9 @@ class TestNullChecks:
 
     def test_is_null_with_normal_ints(self):
         """Test that is_null returns False for regular integers."""
-        assert is_null(0) == False
-        assert is_null(-1) == False
-        assert is_null(100) == False
+        assert not is_null(0)
+        assert not is_null(-1)
+        assert not is_null(100)
 
 
 class TestGroupCount:
@@ -1146,10 +1146,13 @@ class TestCumulativeAggregation:
 
 
 @pytest.mark.parametrize("n_threads", [1, 2])
-@pytest.mark.parametrize("values", [
-    np.array([-1, 4, 3, -3, 1, 0], dtype=np.int64),
-    np.array([np.nan, 2.0, 3.0, 4.0, 5.0, np.nan], dtype=np.float64)
-])
+@pytest.mark.parametrize(
+    "values",
+    [
+        np.array([-1, 4, 3, -3, 1, 0], dtype=np.int64),
+        np.array([np.nan, 2.0, 3.0, 4.0, 5.0, np.nan], dtype=np.float64),
+    ],
+)
 @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "first", "last"])
 def test_group_by_methods_vs_pandas(method, values, n_threads):
     func = getattr(numba, f"group_{method}")

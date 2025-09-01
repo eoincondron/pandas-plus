@@ -124,7 +124,11 @@ class TestGroupBy:
     def test_2d_variants(self, method, value_type, use_mask):
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
         values = value_type(
-            [np.random.rand(len(key)), np.random.randint(0, 9, len(key)), np.arange(len(key)) % 2 == 0]
+            [
+                np.random.rand(len(key)),
+                np.random.randint(0, 9, len(key)),
+                np.arange(len(key)) % 2 == 0,
+            ]
         )
 
         if use_mask:
@@ -256,7 +260,9 @@ class TestGroupBy:
         # Test with multiple columns
         result = gb.mean([values, bools], mask=mask)
         expected_mean = values[pd_mask].groupby(key[pd_mask]).mean()
-        expected = pd.DataFrame({"_arr_0": expected_mean, "_arr_1": expected_percentage})
+        expected = pd.DataFrame(
+            {"_arr_0": expected_mean, "_arr_1": expected_percentage}
+        )
         pd.testing.assert_frame_equal(result, expected)
 
     def test_categorical_order_preserved(self):
@@ -644,6 +650,7 @@ def parquet_files(tmpdir_factory):
 
     return files
 
+
 @pytest.fixture(scope="module")
 def df_chunked(parquet_files):
     df_chunked = pd.read_parquet(parquet_files, dtype_backend="pyarrow")
@@ -729,4 +736,6 @@ def test_group_by_rolling_methods_vs_pandas_with_timedeltas(df_np_backed, method
     expected = getattr(gb["time_int"], method)()
     expected = expected.reset_index(level=0, drop=True).sort_index().astype("m8[ns]")
 
-    pd.testing.assert_series_equal(result, expected, check_dtype=False, check_names=False)
+    pd.testing.assert_series_equal(
+        result, expected, check_dtype=False, check_names=False
+    )

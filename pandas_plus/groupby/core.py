@@ -372,11 +372,11 @@ class GroupBy:
                     out.name = None
 
         if not transform:
-            observed = count[:len(out)] > 0
+            observed = count[: len(out)] > 0
             if not observed.all():
-                # necessary but not sufficient condition for a group to be completely masked. 
-                # count == 0 can mean an group contains only null values so here we calculate the key counts.  
-                # Could optimize further by adding key count to numba functions outputs. 
+                # necessary but not sufficient condition for a group to be completely masked.
+                # count == 0 can mean an group contains only null values so here we calculate the key counts.
+                # Could optimize further by adding key count to numba functions outputs.
                 if mask is not None:
                     observed = self.size(mask=mask, observed_only=False) > 0
                 else:

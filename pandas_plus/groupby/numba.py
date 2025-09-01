@@ -209,7 +209,9 @@ def _chunk_groupby_args(
         for chunk_no, arr in enumerate(chunks):
             chunked_kwargs[chunk_no][name] = arr
 
-    chunked_args = [signature(_group_by_reduce).bind(**kwargs) for kwargs in chunked_kwargs]
+    chunked_args = [
+        signature(_group_by_reduce).bind(**kwargs) for kwargs in chunked_kwargs
+    ]
 
     return chunked_args
 
