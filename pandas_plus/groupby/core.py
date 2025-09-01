@@ -1103,7 +1103,10 @@ class GroupBy:
         # Get the appropriate numba function
         func = getattr(numba_funcs, func_name)
         arg_dict, common_index = self._build_arg_list_for_function(
-            func, values=values, mask=mask, **kwargs,
+            func,
+            values=values,
+            mask=mask,
+            **kwargs,
         )
         results = parallel_map(func, arg_dict.values())
 
@@ -1199,7 +1202,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling minimum of values for each group, same shape as input.
         """
-        return self._apply_rolling_or_cumulative_func("rolling_min", values, window=window, mask=mask)
+        return self._apply_rolling_or_cumulative_func(
+            "rolling_min", values, window=window, mask=mask
+        )
 
     @groupby_method
     def rolling_max(
@@ -1253,7 +1258,9 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Cumulative sum of values for each group, same shape as input.
         """
-        return self._apply_rolling_or_cumulative_func("cumsum", values, mask, skip_na=skip_na)
+        return self._apply_rolling_or_cumulative_func(
+            "cumsum", values, mask, skip_na=skip_na
+        )
 
     @groupby_method
     def cumcount(
@@ -1261,8 +1268,8 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
     ):
         """
-        Calculate cumulative count in each group. 
-        Note this is the base-0 count of each group regardless of nullity, 
+        Calculate cumulative count in each group.
+        Note this is the base-0 count of each group regardless of nullity,
         which is consistent with Pandas but inconsistent with the .count method (Pandas has this inconsistency)
 
         Parameters
@@ -1455,6 +1462,7 @@ class GroupBy:
             max_diff=max_diff,
             n_groups=self.ngroups,
         )
+
 
 def pivot_table(
     index: ArrayCollection,
