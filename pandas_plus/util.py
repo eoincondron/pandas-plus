@@ -787,10 +787,12 @@ def factorize_1d(
 
     if isinstance(values.dtype, pd.CategoricalDtype):
         codes = np.asarray(values.cat.codes)
-        labels = pd.Index(values.cat.categories)
+        labels = pd.Index(values.cat.categories, name=values.name)
         return codes, labels
     elif pd.api.types.is_bool_dtype(values):
-        return np.asarray(values.view("int8")), pd.Index([False, True])
+        codes = np.asarray(values.view("int8"))
+        labels = pd.Index([False, True], name=values.name)
+        return codes, labels
     else:
         codes, uniques = pd.factorize(values.values, use_na_sentinel=True)
 
@@ -807,7 +809,7 @@ def factorize_1d(
                 # If sorting fails, just return unsorted
                 pass
 
-        return codes, pd.Index(uniques)
+        return codes, pd.Index(uniques, name=values.name)
 
 
 def factorize_2d(*vals, sort: bool = False):
