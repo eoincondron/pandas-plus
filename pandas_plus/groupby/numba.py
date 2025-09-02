@@ -1329,6 +1329,7 @@ def _apply_cumulative(
     ngroups: int,
     mask: Optional[ArrayType1D] = None,
     skip_na: bool = True,
+    use_py_func: bool = False,
 ):
     """
     General dispatcher for cumulative operations.
@@ -1347,6 +1348,8 @@ def _apply_cumulative(
         Boolean mask to filter elements
     skip_na : bool, default True
         Whether to skip NaN values in aggregation
+    use_py_func: bool
+        Do not use the JIT-compiled function. For debugging purposes. 
 
     Returns
     -------
@@ -1380,7 +1383,8 @@ def _apply_cumulative(
     target = _build_target_for_groupby(
         values[0].dtype, "sum" if counting else operation, len(group_key)
     )
-    result, has_null_keys = _cumulative_reduce(
+    func = (_cumulative_reduce.py_func if use_py_func else _cumulative_reduce)
+    result, has_null_keys = func(
         group_key=group_key,
         values=values,
         reduce_func=reduce_func,

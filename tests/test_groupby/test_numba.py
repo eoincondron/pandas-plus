@@ -19,6 +19,7 @@ from pandas_plus.groupby.numba import (
     rolling_mean,
     rolling_min,
     rolling_max,
+    _apply_cumulative,
     cumsum,
     cumcount,
     cummin,
@@ -1142,6 +1143,17 @@ class TestCumulativeAggregation:
 
         result_max = cummax(group_key, int32_values, ngroups, mask=mask)
         assert result_max.dtype == np.int32  # Preserve exact type
+
+    def test_cumulative_methods_using_py_func(self):
+        kwargs = dict(
+            group_key=np.array([0, 0, 0, 1, 1, 1], dtype=np.int64),
+            values=np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64),
+            ngroups=2,
+        )
+        for func in [cumsum, cummax, cummin]:
+            py_result = _apply_cumulative(func.__name__[3:], **kwargs, use_py_func=True)
+            nb_result = func(**kwargs)
+            np.testing.assert_array_equal(py_result, nb_result)
 
 
 @pytest.mark.parametrize("n_threads", [1, 2])

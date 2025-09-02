@@ -54,7 +54,7 @@ class TestGroupBy:
         values = value_type(values)
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
-
+    
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
