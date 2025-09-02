@@ -745,12 +745,11 @@ class TestRollingAggregation:
         np.testing.assert_array_almost_equal(result, expected)
 
 
-@pytest.mark.parametrize("window", [1, 2, 5, 8])
+@pytest.mark.parametrize("window", [1, 2, 4, 8])
 @pytest.mark.parametrize("method", ["mean", "sum", "min", "max"])
 def test_numba_rolling_agg_1d_equivalence_wth_min_periods(window, method):
     """Test equivalence of numba_rolling_sum_1d with pandas rolling sum."""
     arr = np.array([1, np.nan, -2, 3, np.nan, 4, 5, np.nan])
-    key = np.zeros(len(arr), dtype=int)
     arr = np.repeat(arr, 2)
     key = np.arange(len(arr)) % 2
     func = dict(mean=rolling_mean, sum=rolling_sum, min=rolling_min, max=rolling_max)[
@@ -758,7 +757,7 @@ def test_numba_rolling_agg_1d_equivalence_wth_min_periods(window, method):
     ]
 
     for min_periods in range(1, window + 1):
-        x = func(key, arr, ngroups=1, window=window, min_periods=min_periods)
+        x = func(key, arr, ngroups=2, window=window, min_periods=min_periods)
         expected = (
             pd.Series(arr)
             .groupby(key)
