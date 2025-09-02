@@ -60,10 +60,16 @@ jobs:
       run: |
         pytest tests/ -v --cov=pandas_plus --cov-report=xml --cov-report=term -n 4
 
+    - name: Upload to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV }}
+
     - name: Upload coverage reports to Codecov
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
       uses: codecov/codecov-action@v3
       with:
+        token: ${{ secrets.CODECOV }}
         file: ./coverage.xml
         fail_ci_if_error: true
 
