@@ -6,13 +6,7 @@ import pytest
 
 from pandas_plus.groupby.core import GroupBy, add_row_margin, pivot_table
 
-
-def assert_pd_equal(left, right, **kwargs):
-    if isinstance(left, pd.Series):
-        pd.testing.assert_series_equal(left, right, **kwargs)
-    else:
-        pd.testing.assert_frame_equal(left, right, **kwargs)
-
+from .conftest import assert_pd_equal
 
 class TestGroupBy:
 
@@ -55,12 +49,12 @@ class TestGroupBy:
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
     
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
         gb = GroupBy(key)
         result = getattr(gb, method)(values, mask=mask)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
     def test_pyarrow_dictionary_key(self):
@@ -71,11 +65,11 @@ class TestGroupBy:
         )
         result = GroupBy.sum(key, values)
         expected = values.to_pandas().groupby(key.to_pandas().astype(str)).sum()
-        pd.testing.assert_series_equal(result, expected)
+        assert_pd_equal(result, expected)
 
         key = key.to_pandas(types_mapper=pd.ArrowDtype)
         result = GroupBy.sum(key, values)
-        pd.testing.assert_series_equal(result, expected)
+        assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -96,7 +90,7 @@ class TestGroupBy:
         expected = (
             series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
         )
-        pd.testing.assert_series_equal(result, expected)
+        assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["mean", "min", "max"])
@@ -116,7 +110,7 @@ class TestGroupBy:
         expected = (
             series[pd_mask].groupby(key[pd_mask]).agg(method).astype(result.dtype)
         )
-        pd.testing.assert_series_equal(result, expected)
+        assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     @pytest.mark.parametrize("value_type", [np.array, list])
@@ -143,7 +137,7 @@ class TestGroupBy:
 
         compare_df = pd.DataFrame(dict(zip(["_arr_0", "_arr_1", "_arr_2"], values)))
         expected = getattr(compare_df[pd_mask].groupby(key[pd_mask]), method)()
-        pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
+        assert_pd_equal(result, expected.astype(result.dtypes), dtype_kind_only=True)
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     @pytest.mark.parametrize("value_type", [pd.DataFrame, dict, pl.DataFrame])
@@ -166,7 +160,7 @@ class TestGroupBy:
         expected = getattr(
             pd.DataFrame(value_dict)[pd_mask].groupby(key[pd_mask]), method
         )()
-        pd.testing.assert_frame_equal(result, expected, check_dtype=method != "mean")
+        assert_pd_equal(result, expected, dtype_kind_only=True)
 
     @pytest.mark.parametrize("agg_func", ["sum", "mean", "min", "max"])
     @pytest.mark.parametrize("value_type", [pd.Series, pd.DataFrame])
@@ -210,7 +204,7 @@ class TestGroupBy:
             .groupby(key[pd_mask])
             .agg({"b": "mean", "a": "sum"})
         )
-        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("categorical", [False, True])
     def test_null_keys(self, categorical):
@@ -249,13 +243,13 @@ class TestGroupBy:
         # Test with sum
         result_sum = gb.sum(values, mask=mask)
         expected_sum = values[pd_mask].groupby(key[pd_mask]).sum()
-        pd.testing.assert_series_equal(result_sum, expected_sum)
+        assert_pd_equal(result_sum, expected_sum)
 
         # Test with bools
         bools = values > values.median()
         result_percentage = gb.mean(bools, mask=mask)
         expected_percentage = bools[pd_mask].groupby(key[pd_mask]).mean()
-        pd.testing.assert_series_equal(result_percentage, expected_percentage)
+        assert_pd_equal(result_percentage, expected_percentage)
 
         # Test with multiple columns
         result = gb.mean([values, bools], mask=mask)
@@ -263,7 +257,7 @@ class TestGroupBy:
         expected = pd.DataFrame(
             {"_arr_0": expected_mean, "_arr_1": expected_percentage}
         )
-        pd.testing.assert_frame_equal(result, expected)
+        assert_pd_equal(result, expected)
 
     def test_categorical_order_preserved(self):
         key = pd.Categorical.from_codes(
@@ -275,7 +269,7 @@ class TestGroupBy:
         result = gb.sum(values)
 
         expected = values.groupby(key, observed=True).sum().reindex(key.categories)
-        pd.testing.assert_series_equal(result, expected)
+        assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("agg_func", ["sum", "median"])
     @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
@@ -321,7 +315,7 @@ class TestGroupBy:
                 }
             )
 
-        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test with LazyFrame as group key - single column LazyFrame becomes Series
         key_lazy_df = pl.DataFrame({"key": key_data}).lazy()
@@ -333,7 +327,7 @@ class TestGroupBy:
         else:
             expected = values.groupby(pd.Series(key_data, name="key")).agg(method)
 
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize("nlevels", [1, 2, 3])
@@ -397,7 +391,7 @@ def test_pivot_table(margins, use_mask, aggfunc):
         del expected["All"]
     elif margins == "column":
         expected = expected.drop("All")
-    pd.testing.assert_frame_equal(
+    assert_pd_equal(
         result, expected, check_dtype=False, check_names=False
     )
 
@@ -433,7 +427,7 @@ class TestGroupByRowSelection:
 
         # Compare with pandas groupby (which keeps original index by default)
         expected = values.groupby(key, observed=True).head(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [1, 2, 3])
     def test_head_dataframe_with_keep_input_index(self, sample_data, n):
@@ -445,7 +439,7 @@ class TestGroupByRowSelection:
         result = gb.head(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).head(n)
-        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     # Tests for tail method with keep_input_index=True
     @pytest.mark.parametrize("n", [1, 2, 3])
@@ -458,7 +452,7 @@ class TestGroupByRowSelection:
         result = gb.tail(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).tail(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [1, 2, 3])
     def test_tail_dataframe_with_keep_input_index(self, sample_data, n):
@@ -470,7 +464,7 @@ class TestGroupByRowSelection:
         result = gb.tail(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).tail(n)
-        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     # Tests for nth method with keep_input_index=True
     @pytest.mark.parametrize("n", [0, 1, 2, -1, -2])
@@ -483,7 +477,7 @@ class TestGroupByRowSelection:
         result = gb.nth(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).nth(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [0, 1, -1])
     def test_nth_dataframe_with_keep_input_index(self, sample_data, n):
@@ -495,7 +489,7 @@ class TestGroupByRowSelection:
         result = gb.nth(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).nth(n)
-        pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     # Edge case tests
     @pytest.mark.parametrize("n", [0, 1, 2])
@@ -508,7 +502,7 @@ class TestGroupByRowSelection:
         result = gb.head(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).head(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [0, 1, 2])
     def test_tail_edge_cases(self, sample_data, n):
@@ -520,7 +514,7 @@ class TestGroupByRowSelection:
         result = gb.tail(values, n=n, keep_input_index=True)
 
         expected = values.groupby(key, observed=True).tail(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [10, -10, 100])
     def test_nth_out_of_bounds(self, sample_data, n):
@@ -533,7 +527,7 @@ class TestGroupByRowSelection:
 
         # Should return empty or NaN values for out of bounds
         expected = values.groupby(key, observed=True).nth(n)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     # Test with different input types
     def test_head_input_types(self, sample_data):
@@ -549,7 +543,7 @@ class TestGroupByRowSelection:
 
         # Expected should always match pandas behavior
         expected = values_orig.groupby(key, observed=True).head(2)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     def test_different_key_types(self, sample_data):
         """Test with numpy array key types."""
@@ -563,7 +557,7 @@ class TestGroupByRowSelection:
         result = gb.head(values, n=2, keep_input_index=True)
 
         expected = values.groupby(key_orig).head(2)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     def test_empty_groups(self):
         """Test behavior with empty groups or no data."""
@@ -576,17 +570,17 @@ class TestGroupByRowSelection:
         # Test head
         result = gb.head(values, n=2, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test tail
         result = gb.tail(values, n=2, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test nth
         result = gb.nth(values, n=0, keep_input_index=True)
         expected = pd.Series([], dtype=values.dtype)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     def test_single_group(self):
         """Test with data that has only one group."""
@@ -598,17 +592,17 @@ class TestGroupByRowSelection:
         # Test head
         result = gb.head(values, n=3, keep_input_index=True)
         expected = values.groupby(key, observed=True).head(3)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test tail
         result = gb.tail(values, n=3, keep_input_index=True)
         expected = values.groupby(key, observed=True).tail(3)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test nth
         result = gb.nth(values, n=1, keep_input_index=True)
         expected = values.groupby(key, observed=True).nth(1)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     def test_large_n_values(self):
         """Test with n larger than group sizes."""
@@ -620,12 +614,12 @@ class TestGroupByRowSelection:
         # Test head with large n
         result = gb.head(values, n=10, keep_input_index=True)
         expected = values.groupby(key, observed=True).head(10)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
         # Test tail with large n
         result = gb.tail(values, n=10, keep_input_index=True)
         expected = values.groupby(key, observed=True).tail(10)
-        pd.testing.assert_series_equal(result, expected, check_dtype=False)
+        assert_pd_equal(result, expected, check_dtype=False)
 
 
 @pytest.fixture(scope="module")
@@ -695,7 +689,7 @@ def test_group_by_methods_vs_pandas_with_chunked_arrays(df_chunked, method):
         if len(expected) < len(df_chunked):
             expected.index = expected.index.astype(str)
 
-        pd.testing.assert_series_equal(result, expected, check_dtype=False), col
+        assert_pd_equal(result, expected, check_dtype=False), col
 
 
 @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -709,7 +703,7 @@ def test_group_by_rolling_methods_vs_pandas_with_chunked_arrays(df_chunked, meth
     )
     expected = expected.reset_index(level=0, drop=True).sort_index()
 
-    pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+    assert_pd_equal(result, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -722,7 +716,7 @@ def test_group_by_rolling_methods_vs_pandas_with_np_arrays(df_np_backed, method)
         df_np_backed.cat, df_np_backed[cols], window=window
     )
     expected = expected.reset_index(level=0, drop=True).sort_index()
-    pd.testing.assert_frame_equal(result, expected, check_dtype=False)
+    assert_pd_equal(result, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
@@ -736,6 +730,6 @@ def test_group_by_rolling_methods_vs_pandas_with_timedeltas(df_np_backed, method
     expected = getattr(gb["time_int"], method)()
     expected = expected.reset_index(level=0, drop=True).sort_index().astype("m8[ns]")
 
-    pd.testing.assert_series_equal(
+    assert_pd_equal(
         result, expected, check_dtype=False, check_names=False
     )

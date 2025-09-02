@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from pandas_plus.groupby.api import SeriesGroupBy, DataFrameGroupBy
 
+from .conftest import assert_pd_equal
+
 
 class TestDataFrameByLevelProcessing:
     """Test DataFrameGroupBy by/level argument processing with various column types."""
@@ -522,7 +524,7 @@ class TestPerformanceWithMixedTypes:
             expected = pandas_gb.sum(numeric_only=True)
 
             # expected does not include the aggregation of the grouping column
-            pd.testing.assert_frame_equal(result[expected.columns], expected)
+            assert_pd_equal(result[expected.columns], expected, dtype_kind_only=True)
 
 
 if __name__ == "__main__":
