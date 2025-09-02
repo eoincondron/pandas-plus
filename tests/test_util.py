@@ -200,61 +200,61 @@ class TestIsNullFunction:
 
 # Numba-compiled test functions to test the JIT implementation
 @nb.njit
-def test_jit_float_null():
+def _test_jit_float_null():
     return is_null(np.nan), is_null(0.0)
 
 
 @nb.njit
-def test_jit_int_null():
+def _test_jit_int_null():
     return is_null(MIN_INT), is_null(0)
 
 
 @nb.njit
-def test_jit_bool_null():
+def _test_jit_bool_null():
     return is_null(True), is_null(False)
 
 
 class TestJitIsNull:
     def test_jit_is_null_floats(self):
         """Test JIT-compiled is_null with float values"""
-        is_nan_null, is_zero_null = test_jit_float_null()
+        is_nan_null, is_zero_null = _test_jit_float_null()
         assert is_nan_null
         assert not is_zero_null
 
     def test_jit_is_null_integers(self):
         """Test JIT-compiled is_null with integer values"""
-        is_min_int_null, is_zero_null = test_jit_int_null()
+        is_min_int_null, is_zero_null = _test_jit_int_null()
         assert is_min_int_null
         assert not is_zero_null
 
     def test_jit_is_null_booleans(self):
         """Test JIT-compiled is_null with boolean values"""
-        is_true_null, is_false_null = test_jit_bool_null()
+        is_true_null, is_false_null = _test_jit_bool_null()
         assert not is_true_null
         assert not is_false_null
 
 
 # Test functions for _get_first_non_null
 @nb.njit
-def test_jit_get_first_non_null_with_nans():
+def _test_jit_get_first_non_null_with_nans():
     arr = np.array([np.nan, np.nan, 3.0, 4.0, np.nan])
     return _get_first_non_null(arr)
 
 
 @nb.njit
-def test_jit_get_first_non_null_all_nans():
+def _test_jit_get_first_non_null_all_nans():
     arr = np.array([np.nan, np.nan, np.nan])
     return _get_first_non_null(arr)
 
 
 @nb.njit
-def test_jit_get_first_non_null_no_nans():
+def _test_jit_get_first_non_null_no_nans():
     arr = np.array([1.0, 2.0, 3.0])
     return _get_first_non_null(arr)
 
 
 @nb.njit
-def test_jit_get_first_non_null_with_integers():
+def _test_jit_get_first_non_null_with_integers():
     arr = np.array([MIN_INT, 1, 2, MIN_INT])
     return _get_first_non_null(arr)
 
@@ -262,25 +262,25 @@ def test_jit_get_first_non_null_with_integers():
 class TestGetFirstNonNull:
     def test_get_first_non_null_with_nans(self):
         """Test _get_first_non_null with array containing NaN values"""
-        idx, val = test_jit_get_first_non_null_with_nans()
+        idx, val = _test_jit_get_first_non_null_with_nans()
         assert idx == 2
         assert val == 3.0
 
     def test_get_first_non_null_all_nans(self):
         """Test _get_first_non_null with array of all NaN values"""
-        idx, val = test_jit_get_first_non_null_all_nans()
+        idx, val = _test_jit_get_first_non_null_all_nans()
         assert idx == -1
         assert np.isnan(val)
 
     def test_get_first_non_null_no_nans(self):
         """Test _get_first_non_null with array containing no NaN values"""
-        idx, val = test_jit_get_first_non_null_no_nans()
+        idx, val = _test_jit_get_first_non_null_no_nans()
         assert idx == 0
         assert val == 1.0
 
     def test_get_first_non_null_with_integers(self):
         """Test _get_first_non_null with integer array containing MIN_INT values"""
-        idx, val = test_jit_get_first_non_null_with_integers()
+        idx, val = _test_jit_get_first_non_null_with_integers()
         assert idx == 1
         assert val == 1
 

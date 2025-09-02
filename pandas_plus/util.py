@@ -5,11 +5,12 @@ from inspect import signature
 from typing import Mapping, Union, Any, Callable, TypeVar, cast, List, Optional, Tuple
 import concurrent.futures
 
-import numba as nb
 import numpy as np
 import pandas as pd
 import polars as pl
 import pyarrow as pa
+import numba as nb
+from numba.typed import List as NumbaList
 from numba.core.extending import overload
 from pandas.core.sorting import get_group_index
 
@@ -541,7 +542,7 @@ def nb_dot(a: Union[np.ndarray, pd.DataFrame, pl.DataFrame], b: ArrayType1D):
     if isinstance(a, np.ndarray):
         arr_list = a.T
     else:
-        arr_list = [np.asarray(a[col]) for col in a.columns]
+        arr_list = NumbaList([np.asarray(a[col]) for col in a.columns])
 
     kinds = [a.dtype.kind for a in arr_list]
     return_type = np.float64 if "f" in kinds else np.int64
@@ -790,7 +791,7 @@ def factorize_1d(
         labels = pd.Index(values.cat.categories, name=values.name)
         return codes, labels
     elif pd.api.types.is_bool_dtype(values):
-        codes = np.asarray(values.view("int8"))
+        codes = np.asarray(values).view("int8")
         labels = pd.Index([False, True], name=values.name)
         return codes, labels
     else:

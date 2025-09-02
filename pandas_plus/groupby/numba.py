@@ -206,6 +206,8 @@ def _chunk_groupby_args(
             chunks = [None] * n_chunks
         else:
             chunks = _array_split_for_lists(kwargs[name], n_chunks)
+            if name == "values":
+                chunks = [NumbaList(chunk) for chunk in chunks]
         for chunk_no, arr in enumerate(chunks):
             chunked_kwargs[chunk_no][name] = arr
 

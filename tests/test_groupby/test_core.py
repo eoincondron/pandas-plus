@@ -46,7 +46,7 @@ class TestGroupBy:
             expected = values[mask].groupby(key[mask], observed=True).agg(method)
         else:
             mask = None
-            expected = values.groupby(key).agg(method)
+            expected = values.groupby(key, observed=True).agg(method)
         if key_dtype == "category":
             expected.index = np.array(expected.index)
 
@@ -274,7 +274,7 @@ class TestGroupBy:
         gb = GroupBy(key)
         result = gb.sum(values)
 
-        expected = values.groupby(key).sum().reindex(key.categories)
+        expected = values.groupby(key, observed=True).sum().reindex(key.categories)
         pd.testing.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize("agg_func", ["sum", "median"])
@@ -310,13 +310,13 @@ class TestGroupBy:
         result = getattr(GroupBy, method)(key, lazy_df)
         if method == "count":
             expected = pd.DataFrame(
-                {"values": pd.Series(value_data, dtype="float64").groupby(key).count()}
+                {"values": pd.Series(value_data, dtype="float64").groupby(key, observed=True).count()}
             )
         else:
             expected = pd.DataFrame(
                 {
                     "values": pd.Series(value_data, dtype="float64")
-                    .groupby(key)
+                    .groupby(key, observed=True)
                     .agg(method)
                 }
             )
@@ -432,7 +432,7 @@ class TestGroupByRowSelection:
         result = gb.head(values, n=n, keep_input_index=True)
 
         # Compare with pandas groupby (which keeps original index by default)
-        expected = values.groupby(key).head(n)
+        expected = values.groupby(key, observed=True).head(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [1, 2, 3])
@@ -444,7 +444,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.head(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).head(n)
+        expected = values.groupby(key, observed=True).head(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
     # Tests for tail method with keep_input_index=True
@@ -457,7 +457,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).tail(n)
+        expected = values.groupby(key, observed=True).tail(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [1, 2, 3])
@@ -469,7 +469,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).tail(n)
+        expected = values.groupby(key, observed=True).tail(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
     # Tests for nth method with keep_input_index=True
@@ -482,7 +482,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.nth(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).nth(n)
+        expected = values.groupby(key, observed=True).nth(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [0, 1, -1])
@@ -494,7 +494,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.nth(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).nth(n)
+        expected = values.groupby(key, observed=True).nth(n)
         pd.testing.assert_frame_equal(result, expected, check_dtype=False)
 
     # Edge case tests
@@ -507,7 +507,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.head(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).head(n)
+        expected = values.groupby(key, observed=True).head(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [0, 1, 2])
@@ -519,7 +519,7 @@ class TestGroupByRowSelection:
         gb = GroupBy(key)
         result = gb.tail(values, n=n, keep_input_index=True)
 
-        expected = values.groupby(key).tail(n)
+        expected = values.groupby(key, observed=True).tail(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     @pytest.mark.parametrize("n", [10, -10, 100])
@@ -532,7 +532,7 @@ class TestGroupByRowSelection:
         result = gb.nth(values, n=n, keep_input_index=True)
 
         # Should return empty or NaN values for out of bounds
-        expected = values.groupby(key).nth(n)
+        expected = values.groupby(key, observed=True).nth(n)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     # Test with different input types
@@ -548,7 +548,7 @@ class TestGroupByRowSelection:
         result = gb.head(values, n=2, keep_input_index=True)
 
         # Expected should always match pandas behavior
-        expected = values_orig.groupby(key).head(2)
+        expected = values_orig.groupby(key, observed=True).head(2)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     def test_different_key_types(self, sample_data):
@@ -597,17 +597,17 @@ class TestGroupByRowSelection:
 
         # Test head
         result = gb.head(values, n=3, keep_input_index=True)
-        expected = values.groupby(key).head(3)
+        expected = values.groupby(key, observed=True).head(3)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
         # Test tail
         result = gb.tail(values, n=3, keep_input_index=True)
-        expected = values.groupby(key).tail(3)
+        expected = values.groupby(key, observed=True).tail(3)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
         # Test nth
         result = gb.nth(values, n=1, keep_input_index=True)
-        expected = values.groupby(key).nth(1)
+        expected = values.groupby(key, observed=True).nth(1)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
     def test_large_n_values(self):
@@ -619,12 +619,12 @@ class TestGroupByRowSelection:
 
         # Test head with large n
         result = gb.head(values, n=10, keep_input_index=True)
-        expected = values.groupby(key).head(10)
+        expected = values.groupby(key, observed=True).head(10)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
         # Test tail with large n
         result = gb.tail(values, n=10, keep_input_index=True)
-        expected = values.groupby(key).tail(10)
+        expected = values.groupby(key, observed=True).tail(10)
         pd.testing.assert_series_equal(result, expected, check_dtype=False)
 
 

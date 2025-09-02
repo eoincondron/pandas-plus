@@ -463,7 +463,7 @@ class TestPandasCompatibility:
                 (pd.Timestamp("2024-01-02"), "A", 1.5),
                 (pd.Timestamp("2024-01-02"), "B", 2.5),
             ],
-            names=[pd.Timedelta("1H"), "category", 3.14159],
+            names=[pd.Timedelta("1h"), "category", 3.14159],
         )
 
         self.df_complex = pd.DataFrame(
@@ -486,7 +486,7 @@ class TestPandasCompatibility:
         assert gb2.ngroups > 0
 
         # Group by Timedelta level name
-        gb3 = DataFrameGroupBy(self.df_complex, level=pd.Timedelta("1H"))
+        gb3 = DataFrameGroupBy(self.df_complex, level=pd.Timedelta("1h"))
         assert gb3.ngroups > 0
 
         # Group by float level name
