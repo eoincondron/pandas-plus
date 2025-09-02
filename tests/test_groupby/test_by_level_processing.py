@@ -177,7 +177,7 @@ class TestDataFrameByLevelProcessing:
         gb = DataFrameGroupBy(self.df_mixed_cols, by=["str_col", 42])
         pandas_gb = self.df_mixed_cols.groupby(["str_col", 42])
 
-        assert gb.ngroups == pandas_gb.ngroups
+        pd.testing.assert_series_equal(gb.size(), pandas_gb.size(), check_names=False)
 
         result = gb.sum()
         expected = pandas_gb.sum()
@@ -235,10 +235,11 @@ class TestDataFrameByLevelProcessing:
         pandas_gb = self.df_multi_index.groupby(["values", "letter"])
 
         # Compare group counts
-        assert gb.ngroups == pandas_gb.ngroups
+        pd.testing.assert_series_equal(gb.size(), pandas_gb.size(), check_names=False)
 
     def test_callable_groupby(self):
         """Test grouping by callable."""
+
         # Group by index length (simple callable)
         def grouper_func(x):
             return len(str(x))
@@ -518,10 +519,10 @@ class TestPerformanceWithMixedTypes:
 
             # Performance shouldn't be drastically different
             result = gb.sum()
-            expected = pandas_gb.sum()
+            expected = pandas_gb.sum(numeric_only=True)
 
-            # Just check shapes match (values may differ slightly due to implementation)
-            assert result.shape == expected.shape
+            # expected does not include the aggregation of the grouping column
+            pd.testing.assert_frame_equal(result[expected.columns], expected)
 
 
 if __name__ == "__main__":
