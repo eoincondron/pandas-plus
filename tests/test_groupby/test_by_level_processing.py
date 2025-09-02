@@ -379,12 +379,14 @@ class TestErrorHandling:
 
     def test_invalid_level_name(self):
         """Test error handling for invalid level names."""
-        with pytest.raises(KeyError, match="Level 'invalid_level' not found"):
+        with pytest.raises(KeyError, match="Level invalid_level not found"):
             SeriesGroupBy(self.series_multi, level="invalid_level")
 
     def test_invalid_level_number(self):
         """Test error handling for out-of-bounds level numbers."""
-        with pytest.raises(IndexError, match="Level 5 out of bounds"):
+        with pytest.raises(
+            IndexError, match="Too many levels: Index has only 2 levels, not 6"
+        ):
             SeriesGroupBy(self.series_multi, level=5)
 
     def test_level_on_regular_index(self):
@@ -392,7 +394,7 @@ class TestErrorHandling:
         regular_series = pd.Series([1, 2, 3, 4])
 
         with pytest.raises(
-            ValueError, match="Level 'invalid' not valid for non-MultiIndex"
+            KeyError
         ):
             SeriesGroupBy(regular_series, level="invalid")
 

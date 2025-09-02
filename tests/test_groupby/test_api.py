@@ -43,7 +43,6 @@ class TestSeriesGroupBy:
 
         result = gb.sum()
         expected = pandas_gb.sum()
-
         pd.testing.assert_series_equal(result, expected)
 
     def test_mean_aggregation(self):

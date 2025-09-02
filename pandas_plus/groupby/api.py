@@ -5,7 +5,7 @@ This module provides familiar pandas-like interfaces that utilize the optimized
 pandas-plus GroupBy engine for better performance while maintaining full compatibility.
 """
 
-from typing import Optional, Union
+from typing import Optional, Union, Hashable
 import pandas as pd
 import numpy as np
 from functools import wraps
@@ -163,6 +163,27 @@ class BaseGroupBy(ABC):
             List of grouping arrays/keys for GroupBy constructor
         """
         pass
+
+    def _resolve_index_levels(self, level):
+        """
+        Resolve index level references to actual level values.
+
+        Parameters
+        ----------
+        level : various types
+            Level specification (name, number, list of names/numbers)
+
+        Returns
+        -------
+        list
+            List of index level value arrays
+        """
+        if not isinstance(level, (list, tuple)):
+            levels = [level]
+        else:
+            levels = level
+
+        return [self._obj.index.get_level_values(level) for level in levels]
 
     @property
     def grouper(self) -> GroupBy:
@@ -479,57 +500,6 @@ class SeriesGroupBy(BaseGroupBy):
 
         return grouping_keys
 
-    def _resolve_index_levels(self, level):
-        """
-        Resolve index level references to actual level values.
-
-        Parameters
-        ----------
-        level : various types
-            Level specification (name, number, list of names/numbers)
-
-        Returns
-        -------
-        list
-            List of index level value arrays
-        """
-        if not isinstance(level, (list, tuple)):
-            level = [level]
-
-        level_keys = []
-        index = self._obj.index
-
-        for lvl in level:
-            if isinstance(index, pd.MultiIndex):
-                # MultiIndex case - resolve level name/number
-                if isinstance(lvl, str):
-                    # Level name - find in names
-                    if lvl not in index.names:
-                        raise KeyError(
-                            f"Level '{lvl}' not found in index names: {index.names}"
-                        )
-                    level_idx = index.names.index(lvl)
-                else:
-                    # Level number - validate range
-                    level_idx = int(lvl)
-                    if level_idx < 0:
-                        level_idx += index.nlevels
-                    if level_idx < 0 or level_idx >= index.nlevels:
-                        raise IndexError(
-                            f"Level {lvl} out of bounds for {index.nlevels} levels"
-                        )
-
-                level_values = index.get_level_values(level_idx)
-            else:
-                # Regular Index case
-                if lvl == 0 or lvl == index.name:
-                    level_values = index
-                else:
-                    raise ValueError(f"Level '{lvl}' not valid for non-MultiIndex")
-
-            level_keys.append(level_values)
-
-        return level_keys
 
     def rolling(self, window: int, min_periods: Optional[int] = None):
         """
@@ -831,65 +801,6 @@ class DataFrameGroupBy(BaseGroupBy):
 
         return resolved_keys
 
-    def _resolve_index_levels(self, level):
-        """
-        Resolve index level references to actual level values for DataFrame.
-
-        Parameters
-        ----------
-        level : various types
-            Level specification (name, number, list of names/numbers)
-
-        Returns
-        -------
-        list
-            List of index level value arrays
-        """
-        if not isinstance(level, (list, tuple)):
-            level = [level]
-
-        level_keys = []
-        index = self._obj.index
-
-        for lvl in level:
-            if isinstance(index, pd.MultiIndex):
-                # MultiIndex case - resolve level name/number
-                try:
-                    if isinstance(lvl, str) or not isinstance(lvl, (int, np.integer)):
-                        # Level name - check if it exists in names
-                        if lvl not in index.names:
-                            raise KeyError(
-                                f"Level '{lvl}' not found in index names: {index.names}"
-                            )
-                        level_idx = index.names.index(lvl)
-                    else:
-                        # Level number - validate range
-                        level_idx = int(lvl)
-                        if level_idx < 0:
-                            level_idx += index.nlevels
-                        if level_idx < 0 or level_idx >= index.nlevels:
-                            raise IndexError(
-                                f"Level {lvl} out of bounds for {index.nlevels} levels"
-                            )
-
-                    level_values = index.get_level_values(level_idx)
-                except (KeyError, IndexError, ValueError) as e:
-                    raise type(e)(
-                        f"Invalid level specification '{lvl}': {str(e)}"
-                    ) from e
-            else:
-                # Regular Index case
-                if lvl == 0 or lvl == index.name:
-                    level_values = index
-                else:
-                    raise ValueError(
-                        f"Level '{lvl}' not valid for non-MultiIndex. "
-                        f"Available: [0, '{index.name}']"
-                    )
-
-            level_keys.append(level_values)
-
-        return level_keys
 
     def __getattr__(self, name: str):
         try:
