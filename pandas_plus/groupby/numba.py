@@ -591,7 +591,11 @@ def group_sum(
     n_threads: int = 1,
     return_count: bool = False,
 ):
-    return _group_func_wrap("nansum", **locals())
+    if isinstance(values, np.ndarray) and values.dtype.kind in "ui":
+        reduce_func_name = "sum"
+    else:
+        reduce_func_name = "nansum"
+    return _group_func_wrap(**locals())
 
 
 def group_mean(
