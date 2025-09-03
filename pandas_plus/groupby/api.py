@@ -5,7 +5,7 @@ This module provides familiar pandas-like interfaces that utilize the optimized
 pandas-plus GroupBy engine for better performance while maintaining full compatibility.
 """
 
-from typing import Optional, Union, Hashable
+from typing import Optional, Union, Hashable, Tuple
 import pandas as pd
 import numpy as np
 from functools import wraps
@@ -202,6 +202,10 @@ class BaseGroupBy(ABC):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(ngroups={self.ngroups})"
+
+    def __iter__(self) -> Tuple[Hashable, Union[pd.Series, pd.DataFrame]]:
+        for key, indexer in self.groups.items():
+            yield key, self._obj.loc[indexer]
 
     @groupby_aggregation("Compute sum of group values")
     def sum(
@@ -500,7 +504,6 @@ class SeriesGroupBy(BaseGroupBy):
 
         return grouping_keys
 
-
     def rolling(self, window: int, min_periods: Optional[int] = None):
         """
         Provide rolling window calculations within groups.
@@ -758,8 +761,7 @@ class DataFrameGroupBy(BaseGroupBy):
         for key in by:
             # Check for array-like objects first (before checking columns,
             # since arrays aren't hashable)
-            if (hasattr(key, "__iter__") and
-                    not isinstance(key, (str, bytes, tuple))):
+            if hasattr(key, "__iter__") and not isinstance(key, (str, bytes, tuple)):
                 # Array-like object (not string or tuple) - use directly
                 if hasattr(key, "__len__") and len(key) != len(self._obj):
                     raise ValueError(
@@ -800,7 +802,6 @@ class DataFrameGroupBy(BaseGroupBy):
                         raise KeyError(f"Invalid grouping key: {key}")
 
         return resolved_keys
-
 
     def __getattr__(self, name: str):
         try:

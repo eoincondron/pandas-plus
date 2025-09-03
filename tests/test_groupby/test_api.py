@@ -477,6 +477,13 @@ class TestGroupByIntegration:
         assert df_gb.ngroups == col_gb.ngroups
         assert list(df_gb.groups.keys()) == list(col_gb.groups.keys())
 
+    def test_iter(self):
+        df_gb = DataFrameGroupBy(self.df, by=self.groups)
+        group_dict = dict(df_gb)
+        assert list(group_dict) == ["X", "Y"]
+        for k, sub in df_gb:
+            pd.testing.assert_frame_equal(sub, self.df.loc[self.groups == k])
+
 
 class TestEdgeCases:
     """Test edge cases and error conditions."""
