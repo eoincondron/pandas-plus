@@ -94,7 +94,6 @@ def _build_target_for_groupby(np_type, operation: str, shape):
     return target
 
 
-@check_data_inputs_aligned("group_key", "mask")
 def _chunk_groupby_args(
     n_chunks: int,
     reduce_func_name: str,

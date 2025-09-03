@@ -267,7 +267,7 @@ class GroupBy:
             )
 
         to_check = value_list + [self.group_ikey]
-        if mask is not None:
+        if mask is not None and pd.api.types.is_bool_dtype(mask):
             to_check.append(mask)
         common_index = _validate_input_lengths_and_indexes(to_check)
         if self._key_index is not None and common_index is not None:
