@@ -2,7 +2,6 @@ import inspect
 from inspect import signature
 from typing import Callable, Optional, List, Tuple
 from functools import wraps
-from copy import deepcopy
 
 import numba as nb
 import numpy as np
@@ -25,92 +24,6 @@ from .. import nanops
 
 
 # ===== Array Preparation Methods =====
-
-
-def _array_split_for_lists(arr_list, n_chunks):
-    """
-    Split a list of arrays or a single array into approximately equal chunks.
-
-    This function is optimized for handling chunked PyArrow arrays backed by
-    pandas Series. It distributes the total elements across chunks while
-    maintaining array boundaries when possible.
-
-    Parameters
-    ----------
-    arr_list : list of array-like or np.ndarray
-        List of arrays to split, or a single numpy array. Each array can be
-        numpy arrays, pandas Series chunks, or other array-like objects.
-    n_chunks : int
-        Number of chunks to split the data into. Must be positive.
-
-    Returns
-    -------
-    list of list or list of np.ndarray
-        If input is np.ndarray: list of numpy array chunks
-        If input is list: list of lists, where each sub-list contains
-        array segments that together form one chunk
-
-    Raises
-    ------
-    ValueError
-        If n_chunks is not a positive integer
-
-    Notes
-    -----
-    - For single numpy arrays, delegates to np.array_split for optimal performance
-    - For lists of arrays, splits by total element count, not by number of arrays
-    - Attempts to create chunks of approximately equal total length
-    - May split individual arrays across chunk boundaries if needed
-    - Designed specifically for PyArrow chunked array optimization
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> from pandas_plus.groupby.numba import array_split_for_lists
-
-    Single array (delegates to numpy):
-    >>> arr = np.array([1, 2, 3, 4, 5, 6])
-    >>> chunks = array_split_for_lists(arr, 3)
-    >>> [chunk.tolist() for chunk in chunks]
-    [[1, 2], [3, 4], [5, 6]]
-
-    List of arrays:
-    >>> arrays = [np.array([1, 2, 3]), np.array([4, 5]), np.array([6, 7, 8, 9])]
-    >>> chunks = array_split_for_lists(arrays, 2)  # Total length 9, ~4-5 per chunk
-    >>> # Result: chunks with approximately equal total lengths
-
-    PyArrow chunked array use case:
-    >>> # When pandas Series backed by chunked PyArrow arrays are converted
-    >>> chunked_arrays = [chunk1, chunk2, chunk3]  # From PyArrow ChunkedArray
-    >>> parallel_chunks = array_split_for_lists(chunked_arrays, 4)
-    """
-    if not isinstance(n_chunks, int) or n_chunks <= 0:
-        raise ValueError(f"n_chunks must be a positive integer, got {n_chunks}")
-
-    if isinstance(arr_list, np.ndarray):
-        return np.array_split(arr_list, n_chunks)
-
-    lengths = [len(a) for a in arr_list]
-    total = sum(lengths)
-
-    # Handle edge case of empty arrays
-    if total == 0:
-        return [[] for _ in range(n_chunks)]
-
-    chunk_len = int(np.ceil(total / n_chunks))
-    chunks = [[]]
-
-    for arr in arr_list:
-        remainder = arr
-        while len(remainder):
-            space = chunk_len - sum(map(len, chunks[-1]))
-            if not space:
-                chunks.append([])
-                continue
-            chunks[-1].append(remainder[:space])
-            remainder = remainder[space:]
-
-    return chunks
 
 
 def _val_to_numpy(
@@ -184,38 +97,116 @@ def _build_target_for_groupby(np_type, operation: str, shape):
 @check_data_inputs_aligned("group_key", "mask")
 def _chunk_groupby_args(
     n_chunks: int,
+    reduce_func_name: str,
     group_key: np.ndarray,
     values: List[np.ndarray] | np.ndarray | None,
-    target: np.ndarray,
-    reduce_func: Optional[Callable] = None,
+    ngroups: int,
     mask: Optional[np.ndarray] = None,
 ):
-    if values is not None:
-        if sum(len(arr) for arr in values) != len(group_key):
-            raise ValueError(
-                "Length of group_key must match total length of all arrays in values"
-            )
+    """
+    Splits groupby arguments into chunks for parallel or chunked processing.
+
+    This function partitions the input arrays (`group_key`, `values`, and `mask`) into `n_chunks`
+    and prepares argument sets for chunked groupby-reduce operations. It supports both single
+    array and list-of-arrays for `values`, ensuring alignment with `group_key`. The resulting
+    arguments are suitable for use with the `_group_by_reduce` function.
+
+    Parameters
+    ----------
+    n_chunks : int
+        The number of chunks to split the data into.
+    group_key : np.ndarray
+        Array of group labels, used to group the data.
+    values : list of np.ndarray, np.ndarray, or None
+        The data values to be grouped and reduced. Can be a single array, a list of arrays,
+        or None if not required.
+    ngroups: int
+        The number of distinct groups
+    reduce_func_name : str
+        The name of reduction function to apply to each group.
+    mask : np.ndarray, optional
+        Optional boolean mask to filter the data.
+
+    Returns
+    -------
+    chunked_args : list
+        A list of `BoundArguments` objects, each containing the arguments for a chunked
+        groupby-reduce operation.
+
+    Raises
+    ------
+    ValueError
+        If the total length of `values` does not match the length of `group_key` when
+        `values` is a list.
+
+    Notes
+    -----
+    This function is intended for internal use to facilitate chunked or parallel groupby
+    operations, especially when using Numba or similar parallelization tools.
+    """
     kwargs = locals().copy()
     del kwargs["n_chunks"]
-    shared_kwargs = {"target": target}
-    shared_kwargs["reduce_func"] = reduce_func
 
-    chunked_kwargs = [deepcopy(shared_kwargs) for i in range(n_chunks)]
-    for name in ["group_key", "values", "mask"]:
-        if kwargs[name] is None:
-            chunks = [None] * n_chunks
-        else:
-            chunks = _array_split_for_lists(kwargs[name], n_chunks)
-            if name == "values":
-                chunks = [NumbaList(chunk) for chunk in chunks]
-        for chunk_no, arr in enumerate(chunks):
-            chunked_kwargs[chunk_no][name] = arr
+    if isinstance(values, NumbaList):
+        if mask is not None and mask.dtype.kind in "ui":
+            assert isinstance(
+                values, np.ndarray
+            ), "Fancy indexing with chunked args is not allowed"
+        chunked_args = [
+            kwargs | chunk
+            for chunk in _chunk_args_for_chunked_values(group_key, values, mask)
+        ]
 
-    chunked_args = [
-        signature(_group_by_reduce).bind(**kwargs) for kwargs in chunked_kwargs
+    elif mask is not None:
+        if mask.dtype.kind == "b":
+            mask = mask.nonzero()[0]
+        chunked_args = (
+            kwargs | dict(mask=chunk) for chunk in np.array_split(mask, n_chunks)
+        )
+
+    else:
+        chunked_args = [
+            kwargs | chunk
+            for chunk in _chunk_args_for_unchunked_values(group_key, values, n_chunks)
+        ]
+
+    return [
+        signature(_apply_group_method_single_chunk).bind_partial(**chunk)
+        for chunk in chunked_args
     ]
 
-    return chunked_args
+
+def _chunk_args_for_chunked_values(
+    group_key: np.ndarray,
+    values: List[np.ndarray],
+    mask: Optional[np.ndarray] = None,
+):
+    lengths = [len(chunk) for chunk in values]
+    if sum(lengths) != len(group_key):
+        raise ValueError(
+            "Length of group_key must match total length of all arrays in values"
+        )
+    splits = np.cumsum(lengths[:-1])
+    key_list = np.array_split(group_key, splits)
+    mask_list = [None] * len(key_list) if mask is None else np.array_split(mask, splits)
+    return [
+        dict(
+            group_key=k,
+            values=v,
+            mask=m,
+        )
+        for k, v, m in zip(key_list, values, mask_list)
+    ]
+
+
+def _chunk_args_for_unchunked_values(
+    group_key: np.ndarray,
+    values: List[np.ndarray],
+    n_chunks: int,
+):
+    key_list = np.array_split(group_key, n_chunks)
+    value_list = np.array_split(values, n_chunks)
+    return [dict(group_key=k, values=v) for k, v in zip(key_list, value_list)]
 
 
 # ===== Row Selection Methods =====
@@ -438,30 +429,59 @@ class ScalarFuncs:
 @nb.njit(nogil=True)
 def _group_by_reduce(
     group_key: np.ndarray,
-    values: NumbaList[np.ndarray],
+    values: np.ndarray,
     target: np.ndarray,
     reduce_func: Callable,
-    mask: np.ndarray = None,
+    indexer: np.ndarray = None,
+    check_in_bounds: bool = True,
 ):
-    masked = mask is not None
     count = np.full(len(target), 0, dtype="int64")
-    i = -1
-    for arr in values:
-        for val in arr:
-            i += 1
+    if indexer is None:
+        for i in range(len(group_key)):
             key = group_key[i]
             if key < 0:
                 continue
-
-            if masked and not mask[i]:
+            target[key], count[key] = reduce_func(target[key], values[i], count[key])
+    else:
+        n_rows = len(group_key)
+        for i in indexer:
+            if check_in_bounds and i > n_rows:
+                raise ValueError(
+                    f"Indexer {i} is out of bounds for array of length {n_rows}"
+                )
+            key = group_key[i]
+            if key < 0:
                 continue
-
-            target[key], count[key] = reduce_func(target[key], val, count[key])
+            target[key], count[key] = reduce_func(target[key], values[i], count[key])
 
     return target, count
 
 
-@check_data_inputs_aligned("group_key", "values", "mask")
+@check_data_inputs_aligned("group_key", "values")
+def _apply_group_method_single_chunk(
+    reduce_func_name: str,
+    group_key: ArrayType1D,
+    values: ArrayType1D,
+    ngroups: int,
+    mask: Optional[ArrayType1D] = None,
+):
+    group_key = _val_to_numpy(group_key)[0]
+    if mask is not None and mask.dtype.kind == "b":
+        indexer = mask.nonzero()[0]
+        check_in_bounds = False
+    else:
+        indexer = mask
+        check_in_bounds = True
+    target = _build_target_for_groupby(values.dtype, reduce_func_name, ngroups)
+    return _group_by_reduce(
+        group_key=group_key,
+        values=values,
+        target=target,
+        indexer=indexer,
+        reduce_func=getattr(ScalarFuncs, reduce_func_name),
+    )
+
+
 def _group_func_wrap(
     reduce_func_name: str,
     group_key: ArrayType1D,
@@ -471,29 +491,82 @@ def _group_func_wrap(
     n_threads: int = 1,
     return_count: bool = False,
 ):
+    """
+    Applies a reduction function to grouped data, supporting chunked arrays, optional masking, and multi-threading.
+
+    Parameters
+    ----------
+    reduce_func_name : str
+        Name of the reduction function to apply (e.g., 'sum', 'mean', 'count').
+    group_key : ArrayType1D
+        Array of group labels for each value.
+    values : ArrayType1D
+        Array of values to be reduced, possibly chunked.
+    ngroups : int
+        Number of unique groups.
+    mask : Optional[ArrayType1D], optional
+        Boolean or slice mask to filter values and group keys before reduction.
+    n_threads : int, default 1
+        Number of threads to use for parallel processing. If 1, runs single-threaded.
+    return_count : bool, default False
+        If True, also returns the count of values per group.
+
+    Returns
+    -------
+    out : np.ndarray
+        Array of reduced values per group.
+    count : np.ndarray, optional
+        Array of counts per group, returned if `return_count` is True.
+
+    Notes
+    -----
+    - Handles chunked arrays and fancy indexing.
+    - Supports parallel processing for chunked data.
+    - Preserves original dtype for datetime and timedelta types.
+    """
+    if isinstance(mask, slice):
+        # slicing creates views at no cost
+        values = values[mask]
+        group_key = group_key[mask]
+        mask = None
+
     group_key = _val_to_numpy(group_key)[0]
+    values, orig_type = _val_to_numpy(values, as_list=True)
+    values_are_chunked = len(values) > 1
+
+    fancy_indexing = False
     if mask is not None:
         mask = _val_to_numpy(mask)[0]
+        if mask.dtype.kind in "ui":
+            fancy_indexing = True
 
-    values, orig_type = _val_to_numpy(values, as_list=True)
-    target = _build_target_for_groupby(values[0].dtype, reduce_func_name, ngroups)
+    if values_are_chunked:
+        if fancy_indexing:
+            # fancy indexer doesn't play nicely with chunking values
+            # Unchunk the values and follow this path
+            values = np.concatenate(values)
+            values_are_chunked = False
+    else:
+        values = values[0]
 
     kwargs = dict(
         group_key=group_key,
         values=values,
-        target=target,
+        ngroups=ngroups,
         mask=mask,
+        reduce_func_name=reduce_func_name,
     )
-    kwargs["reduce_func"] = getattr(ScalarFuncs, reduce_func_name)
     counting = "count" in reduce_func_name
 
-    if n_threads == 1:
-        out, count = _group_by_reduce(**kwargs)
+    if n_threads == 1 and not values_are_chunked:
+        out, count = _apply_group_method_single_chunk(**kwargs)
         if counting:
             out = count
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
-        chunks = parallel_map(_group_by_reduce, [args.args for args in chunked_args])
+        chunks = parallel_map(
+            _apply_group_method_single_chunk, [args.args for args in chunked_args]
+        )
         chunks, counts = zip(*chunks)
         if counting:
             chunks = counts
@@ -1353,7 +1426,7 @@ def _apply_cumulative(
     skip_na : bool, default True
         Whether to skip NaN values in aggregation
     use_py_func: bool
-        Do not use the JIT-compiled function. For debugging purposes. 
+        Do not use the JIT-compiled function. For debugging purposes.
 
     Returns
     -------
@@ -1387,7 +1460,7 @@ def _apply_cumulative(
     target = _build_target_for_groupby(
         values[0].dtype, "sum" if counting else operation, len(group_key)
     )
-    func = (_cumulative_reduce.py_func if use_py_func else _cumulative_reduce)
+    func = _cumulative_reduce.py_func if use_py_func else _cumulative_reduce
     result, has_null_keys = func(
         group_key=group_key,
         values=values,
