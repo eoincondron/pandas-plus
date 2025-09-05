@@ -206,6 +206,89 @@ class TestGroupBy:
         )
         assert_pd_equal(result, expected, check_dtype=False)
 
+    def test_agg_multi_threading_small_data(self):
+        """Test agg method with small data (single-threaded) and multiple agg functions."""
+        key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
+        values = pd.Series([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
+        
+        gb = GroupBy(key)
+        assert gb._n_threads == 1  # Small data should use single thread
+        
+        # Test with single value, multiple agg functions
+        result = gb.agg(values, agg_func=["sum", "mean", "min", "max"])
+        
+        # Expected column names should match the agg function names
+        expected_columns = ["sum", "mean", "min", "max"]
+        assert list(result.columns) == expected_columns
+        
+        # Compare with pandas
+        expected = values.groupby(key).agg(["sum", "mean", "min", "max"])
+        expected.columns = expected_columns
+        assert_pd_equal(result, expected, check_dtype=False)
+
+    def test_agg_multi_threading_large_data(self):
+        """Test agg method with large data (multi-threaded) and multiple agg functions."""
+        np.random.seed(42)  # For reproducibility
+        size = 2_000_000  # Large enough to trigger multi-threading
+        key = pd.Series(np.random.randint(0, 100, size=size))
+        values = pd.Series(np.random.rand(size))
+        
+        gb = GroupBy(key)
+        assert gb._n_threads > 1  # Large data should use multiple threads
+        
+        # Test with single value, multiple agg functions
+        result = gb.agg(values, agg_func=["sum", "mean"])
+        
+        # Expected column names should match the agg function names
+        expected_columns = ["sum", "mean"]
+        assert list(result.columns) == expected_columns
+        
+        # Verify that results make sense (sums should be larger than means for most groups)
+        assert (result["sum"] >= result["mean"]).all()
+        
+        # Test internal consistency: mean should roughly equal sum/count for each group
+        result_count = gb.count(values)
+        computed_mean = result["sum"] / result_count
+        np.testing.assert_allclose(result["mean"], computed_mean, rtol=1e-10)
+
+    @pytest.mark.parametrize("n_agg_funcs", [2, 3, 4])
+    @pytest.mark.parametrize("n_input_values", [1, 2, 3])
+    def test_agg_output_column_naming(self, n_agg_funcs, n_input_values):
+        """Test that agg method produces correct column names for different combinations."""
+        key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
+        agg_funcs = ["sum", "mean", "min", "max"][:n_agg_funcs]
+        
+        if n_input_values == 1:
+            # Single input value - column names should be agg function names
+            values = pd.Series([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
+            result = GroupBy.agg(key, values, agg_func=agg_funcs)
+            
+            expected_columns = agg_funcs
+            assert list(result.columns) == expected_columns
+            
+        else:
+            # Multiple input values - each gets paired with corresponding agg function
+            value_dict = {
+                f"col_{i}": pd.Series([float(i+1) * j for j in [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]])
+                for i in range(n_input_values)
+            }
+            values = pd.DataFrame(value_dict)
+            
+            # Should match number of agg funcs to number of input columns
+            if n_agg_funcs != n_input_values:
+                with pytest.raises(ValueError, match="Mismatch between number of agg funcs"):
+                    GroupBy.agg(key, values, agg_func=agg_funcs)
+            else:
+                result = GroupBy.agg(key, values, agg_func=agg_funcs)
+                
+                expected_columns = list(value_dict.keys())
+                assert list(result.columns) == expected_columns
+                
+                # Each column should be aggregated with its corresponding function
+                for i, (col_name, agg_func) in enumerate(zip(expected_columns, agg_funcs)):
+                    expected_col = values[col_name].groupby(key).agg(agg_func)
+                    assert_pd_equal(result[col_name], expected_col, check_dtype=False)
+
     @pytest.mark.parametrize("categorical", [False, True])
     def test_null_keys(self, categorical):
         key = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
