@@ -800,23 +800,31 @@ class GroupBy:
                 agg_func = agg_func.__name__
             func = getattr(self, agg_func)
             return func(values, mask=mask, transform=transform, margins=margins)
+
         elif np.ndim(agg_func) == 1:
             if isinstance(values, ArrayType1D):
-                values = dict.fromkeys(agg_func, values)
-            value_list, value_names = convert_data_to_arr_list_and_keys(values)
+                value_list, value_names = [values] * len(agg_func), agg_func
+            else:
+                value_list, value_names = convert_data_to_arr_list_and_keys(values)
+
             if len(agg_func) != len(value_list):
                 raise ValueError(
                     f"Mismatch between number of agg funcs ({len(agg_func)}) "
                     f"and number of values ({len(values)})"
                 )
-            return pd.DataFrame(
-                {
-                    k: self.agg(
-                        v, agg_func=f, mask=mask, transform=transform, margins=margins
-                    )
-                    for f, (k, v) in zip(agg_func, zip(value_names, value_list))
-                },
-            )
+
+            args_list = [
+                signature(self.agg)
+                .bind(v, agg_func=f, mask=mask, transform=transform, margins=margins)
+                .args
+                for f, v in zip(agg_func, value_list)
+            ]
+            if self._n_threads > 1:
+                results = parallel_map(self.agg, args_list)
+            else:
+                results = [self.agg(*args) for args in args_list]
+
+            return pd.DataFrame(dict(zip(value_names, results)), copy=False)
         else:
             raise TypeError(
                 "agg_func must by a single function name or an iterable of same"
