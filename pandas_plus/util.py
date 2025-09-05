@@ -147,9 +147,6 @@ def check_data_inputs_aligned(
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(*args, **kwargs) -> Any:
-            if not args:
-                return func(*args, **kwargs)
-
             arguments = signature(func).bind(*args, **kwargs).arguments
             lengths = {}
             # Extract args that have a length
