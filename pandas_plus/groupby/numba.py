@@ -466,6 +466,8 @@ def _apply_group_method_single_chunk(
 ):
     group_key = _val_to_numpy(group_key)[0]
     if mask is not None and mask.dtype.kind == "b":
+        if len(mask) != len(group_key):
+            raise ValueError("Mask must have the same length as group_key")
         indexer = mask.nonzero()[0]
         check_in_bounds = False
     else:
@@ -480,8 +482,6 @@ def _apply_group_method_single_chunk(
         reduce_func=getattr(ScalarFuncs, reduce_func_name),
         check_in_bounds=check_in_bounds,
     )
-    return target, counts, group_labels
-
 
 @nb.njit(parallel=True)
 def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
