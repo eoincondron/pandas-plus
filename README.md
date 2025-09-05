@@ -6,10 +6,54 @@ A high-performance extension package for pandas that provides fast groupby opera
 
 ```pandas-plus``` enhances Pandas groupby functionality with optimized implementations that leverage NumPy arrays and Numba's just-in-time compilation for significant performance improvements. The package is designed to work seamlessly with pandas DataFrames and Series while providing additional flexibility for various array types.
 
-## Key Features
 
-- **Flexible Input Types**: Support for NumPy arrays, pandas Series/DataFrames backed by NumPy or Arrow, and Polars Series/DataFrames
-- **Memory Efficient**: Inline filtering such that DataFrames do not have to be filtered before group-by operations
+## Faster GroupBy Operations
+Optimized group-by operations, particularly with categorical data (uses the existing factorization) and with multi-threading on large datasets across both row and columns axes
+
+![alt text](docs/images/gb-comparison.png)
+
+## Inline Filtering of Groupby Operations
+ Inline filtering such that Series/DataFrames do not have to be filtered before group-by operations. Pass a Boolean mask, slice or fancy-indexer to the group-by method call:
+![alt text](docs/images/mask-demo.png)
+![alt text](docs/images/slice-fancy-demo.png)
+
+- **Flexible Input Types**: Support for NumPy arrays, pandas Series/DataFrames backed by NumPy or Arrow, and Polars Series/DataFrames. Here are some examples which are not exhaustive
+
+<!-- ![alt text](docs/images/np-arr-agg.png) -->
+
+```python
+from pandas_plus.groupby import GroupBy
+
+arr = np.random.randint(0, 10, 10000)
+keys = arr % 3 + 2
+
+# Create GroupBy object
+gb = core.GroupBy(keys)
+
+# Perform aggregations
+gb.agg(arr, agg_func=["sum", "mean", "count", "min", "max"])
+     sum      mean  count  min  max
+2  18054  4.489928   4021    0    9
+3  12085  4.035058   2995    1    7
+4  14749  4.942694   2984    2    8
+
+# on dict of arrays / Series
+gb.std(dict(x=arr, x_squared=arr ** 2, pd_series=pd.Series(arr)))
+           x	x_squared	pd_series
+2	3.351510	31.601683	3.351510
+3	2.452965	20.108977	2.452965
+4	2.429882	24.677406	2.429882
+
+# build a GroupBy from a dict/list of keys or a DataFrame
+key_list = [keys, pd.Series(["A", "B"]).repeat(5000)]
+GroupBy(key_list).size()
+3  A    1537
+   B    1497
+2  A    2027
+   B    1990
+4  A    1436
+   B    1513
+```
 - **Pandas Compatible**: Results are returned as pandas Series/DataFrames
 - **Multi-threading**: Automatic parallelization for large datasets across both row and column axes
 
@@ -26,27 +70,6 @@ The core of pandas-plus is the `GroupBy` class located in `pandas_plus.groupby.c
 
 ### Basic Usage
 
-```python
-import numpy as np
-import pandas as pd
-from pandas_plus.groupby import GroupBy
-
-# Create sample data
-keys = np.array(['A', 'B', 'A', 'C', 'B', 'A'])
-values = np.array([1, 2, 3, 4, 5, 6])
-
-# Create GroupBy object
-gb = GroupBy(keys)
-
-# Perform aggregations
-result = gb.sum(values)
-print(result)
-# Output:
-# A    10
-# B     7
-# C     4
-# dtype: int64
-```
 
 ### Supported Aggregation Methods
 
@@ -241,16 +264,8 @@ pandas-plus provides significant performance improvements for large datasets:
 - NumPy
 - pandas
 - numba
+- pyarrow
 - polars (optional, for polars Series support)
-
-## Testing
-
-Run the test suite using pytest:
-
-```bash
-cd /path/to/pandas-plus
-python -m pytest tests/ -v
-```
 
 ## Development
 
@@ -259,7 +274,3 @@ See [CLAUDE.md](CLAUDE.md) for development guidelines including:
 - Testing requirements
 - Build and lint commands
 - Contribution guidelines
-
-## License
-
-[Add your license information here]
