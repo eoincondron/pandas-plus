@@ -1,7 +1,7 @@
 import inspect
 from inspect import signature
 from typing import Callable, Optional, List, Tuple
-from functools import wraps
+from functools import wraps, reduce
 
 import numba as nb
 import numpy as np
@@ -478,7 +478,60 @@ def _apply_group_method_single_chunk(
         target=target,
         indexer=indexer,
         reduce_func=getattr(ScalarFuncs, reduce_func_name),
+        check_in_bounds=check_in_bounds,
     )
+    return target, counts, group_labels
+
+
+@nb.njit(parallel=True)
+def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
+    out = x.copy()
+    for i in nb.prange(len(x)):
+        out[i] = reducer(x[i], y[i], count=1)[0]
+    return out
+
+
+def combine_chunk_results_for_unfactorized_key(
+    chunk_reducer: Callable,
+    chunks: List[np.ndarray],
+    labels: List[np.ndarray],
+    counts: Optional[List[np.ndarray]] = None,
+):
+    all_labels = reduce(pd.Index.union, map(pd.Index, labels))
+    combined = pd.Series(index=all_labels)
+    if counts is None:
+        counts = [None] * len(chunks)
+        combined_count = None
+    else:
+        combined_count = pd.Series(0, index=all_labels)
+    for key, chunk, count in zip(labels, chunks, counts):
+        combined.loc[key] = reduce_array_pair(
+            combined.loc[key].values, chunk, chunk_reducer
+        )
+        if combined_count is not None:
+            combined_count.loc[key] = combined_count.loc[key] + count
+
+    return combined, combined_count, all_labels
+
+
+def combine_chunk_results_for_factorized_key(
+    chunk_reducer: Callable,
+    chunks: List[np.ndarray],
+    counts: Optional[List[np.ndarray]] = None,
+):
+    combined = chunks[0]
+
+    if counts is None:
+        counts = np.zeros(len(chunks))
+        combined_count = 0
+    else:
+        combined_count = counts[0]
+
+    for chunk, count in zip(chunks[1:], counts[1:]):
+        combined = reduce_array_pair(combined, chunk, chunk_reducer)
+        combined_count = combined_count + count
+
+    return combined, combined_count
 
 
 def _group_func_wrap(
@@ -558,29 +611,33 @@ def _group_func_wrap(
     counting = "count" in reduce_func_name
 
     if n_threads == 1 and not values_are_chunked:
-        out, count = _apply_group_method_single_chunk(**kwargs)
+        result, count = _apply_group_method_single_chunk(**kwargs)
         if counting:
-            out = count
+            result = count
     else:
         chunked_args = _chunk_groupby_args(**kwargs, n_chunks=n_threads)
         chunks = parallel_map(
             _apply_group_method_single_chunk, [args.args for args in chunked_args]
         )
         chunks, counts = zip(*chunks)
+
         if counting:
             chunks = counts
-        arr = np.vstack(chunks)
-        chunk_reduce = "sum" if counting else reduce_func_name.replace("nan", "")
-        out = nanops.reduce_2d(chunk_reduce, arr)
-        count = sum(counts)
+
+        chunk_reducer = (
+            ScalarFuncs.sum if counting else getattr(ScalarFuncs, reduce_func_name)
+        )
+        result, count = combine_chunk_results_for_factorized_key(
+            chunk_reducer, chunks, counts
+        )
 
     if orig_type.kind in "mM":
-        out = out.astype(orig_type)
+        result = result.astype(orig_type)
 
     if return_count:
-        return out, count
+        return result, count
     else:
-        return out
+        return result
 
 
 def group_size(
