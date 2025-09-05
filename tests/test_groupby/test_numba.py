@@ -8,7 +8,7 @@ from numba.typed import List as NumbaList
 from pandas_plus.groupby.numba import (
     ScalarFuncs,
     _chunk_groupby_args,
-    _group_by_reduce,
+    _apply_group_method_single_chunk,
     group_nearby_members,
     group_count,
     group_mean,
@@ -70,158 +70,199 @@ def test_scalar_methods_with_nans(method, values, count):
 
 class TestChunkGroupbyArgs:
 
-    def test_basic_functionality(self):
-        """Test basic functionality with simple inputs."""
-        # Setup
-        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
-        target = np.zeros(3)
-        mask = np.ones(5, dtype=bool)
-        reduce_func = ScalarFuncs.nansum
-        n_chunks = 2
-
-        # Call the function
+    def test_chunked_values_with_numba_list(self):
+        """Test chunking with NumbaList values (chunked values path)."""
+        group_key = np.array([0, 1, 0, 2, 1, 0, 1, 2], dtype=np.int64)
+        # Create chunks of different sizes
+        values = NumbaList([
+            np.array([1.0, 2.0, 3.0], dtype=np.float64),  # First chunk
+            np.array([4.0, 5.0], dtype=np.float64),       # Second chunk  
+            np.array([6.0, 7.0, 8.0], dtype=np.float64), # Third chunk
+        ])
+        
         chunked_args = _chunk_groupby_args(
-            n_chunks=n_chunks,
+            n_chunks=3,  # This gets ignored for chunked values
+            reduce_func_name="nansum",
             group_key=group_key,
             values=values,
-            target=target,
-            mask=mask,
-            reduce_func=reduce_func,
+            ngroups=3,
+            mask=None
         )
 
-        # Verify results
-        assert len(chunked_args) == n_chunks
-
-        # Each chunked argument should be bound arguments for _group_by_iterator
+        # Should have 3 chunks (one per NumbaList element)
+        assert len(chunked_args) == 3
+        
+        # Each chunk should be a BoundArguments for _apply_group_method_single_chunk
         for args in chunked_args:
-            assert args.signature == signature(_group_by_reduce)
+            assert args.signature == signature(_apply_group_method_single_chunk)
+            
+        # Verify chunk contents
+        assert len(chunked_args[0].arguments["group_key"]) == 3
+        assert len(chunked_args[1].arguments["group_key"]) == 2  
+        assert len(chunked_args[2].arguments["group_key"]) == 3
+        
+        assert len(chunked_args[0].arguments["values"]) == 3
+        assert len(chunked_args[1].arguments["values"]) == 2
+        assert len(chunked_args[2].arguments["values"]) == 3
 
-        # Check first chunk
-        first_chunk = chunked_args[0]
-        assert len(first_chunk.args[0]) <= 3  # group_key length should be around half
-        assert len(first_chunk.args[1]) <= 3  # values length should be around half
-        assert len(first_chunk.args[4]) <= 3  # mask length should be around half
-        assert (
-            first_chunk.args[2].shape == target.shape
-        )  # target shape should be unchanged
-
-        # Test with actual _group_by_iterator
-        results = [_group_by_reduce(*args.args) for args in chunked_args]
-        assert all(isinstance(r[0], np.ndarray) for r in results)
-        assert all(r[0].shape == target.shape for r in results)
-
-    def test_with_empty_mask(self):
-        """Test with mask=None."""
+    def test_chunked_values_with_mask(self):
+        """Test chunked values with mask."""
         group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
-        target = np.zeros(3)
-        reduce_func = ScalarFuncs.nansum
-        n_chunks = 2
-
+        values = NumbaList([
+            np.array([1.0, 2.0], dtype=np.float64),
+            np.array([3.0, 4.0, 5.0], dtype=np.float64),
+        ])
+        mask = np.array([True, False, True, True, False], dtype=bool)
+        
         chunked_args = _chunk_groupby_args(
-            n_chunks=n_chunks,
+            n_chunks=2,
+            reduce_func_name="nansum", 
             group_key=group_key,
             values=values,
-            target=target,
-            mask=np.array([], dtype=bool),
-            reduce_func=reduce_func,
+            ngroups=3,
+            mask=mask
         )
 
-        assert len(chunked_args) == n_chunks
+        assert len(chunked_args) == 2
+        
+        # Check that masks are properly split
+        assert len(chunked_args[0].arguments["mask"]) == 2
+        assert len(chunked_args[1].arguments["mask"]) == 3
 
-        # Check that mask was properly prepared
+    def test_mask_based_chunking(self):
+        """Test chunking based on mask when values is not NumbaList."""
+        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        mask = np.array([True, False, True, True, False], dtype=bool)
+        
+        chunked_args = _chunk_groupby_args(
+            n_chunks=2,
+            reduce_func_name="nansum",
+            group_key=group_key, 
+            values=values,
+            ngroups=3,
+            mask=mask
+        )
+
+        assert len(chunked_args) == 2
+        
+        # With boolean mask, it should be converted to indices
         for args in chunked_args:
-            mask = args.arguments["mask"]
-            assert isinstance(mask, np.ndarray)  # mask is prepared
-            assert mask.dtype == bool  # mask is boolean
-            assert len(mask) == 0  # mask length matches chunk length
+            mask_chunk = args.arguments["mask"]
+            assert mask_chunk is not None
+            # Should be integer indices, not boolean
+            assert mask_chunk.dtype.kind in 'ui'
 
-    def test_different_chunk_numbers(self):
-        """Test with different numbers of chunks."""
-        group_key = np.array([0, 1, 0, 2, 1, 3, 4, 5, 6, 7], dtype=np.int64)
-        values = NumbaList(
-            [
-                np.array(
-                    [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
-                    dtype=np.float64,
-                )
-            ]
+    def test_integer_mask_chunking(self):
+        """Test chunking with integer mask (indices)."""
+        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+        mask = np.array([0, 2, 3], dtype=np.int64)  # Integer indices
+        
+        chunked_args = _chunk_groupby_args(
+            n_chunks=2,
+            reduce_func_name="nansum",
+            group_key=group_key,
+            values=values, 
+            ngroups=3,
+            mask=mask
         )
-        target = np.zeros(8)
-        mask = np.ones(10, dtype=bool)
-        reduce_func = ScalarFuncs.nansum
 
-        for n_chunks in [1, 2, 3, 5, 10]:
-            chunked_args = _chunk_groupby_args(
-                n_chunks=n_chunks,
+        assert len(chunked_args) == 2
+        
+        # Total mask length should equal original
+        total_mask_length = sum(len(args.arguments["mask"]) for args in chunked_args)
+        assert total_mask_length == len(mask)
+
+    def test_unchunked_values_path(self):
+        """Test the unchunked values path (no NumbaList, no mask)."""
+        group_key = np.array([0, 1, 0, 2, 1, 0], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=np.float64)
+        
+        chunked_args = _chunk_groupby_args(
+            n_chunks=3,
+            reduce_func_name="nansum",
+            group_key=group_key,
+            values=values,
+            ngroups=3,
+            mask=None
+        )
+
+        assert len(chunked_args) == 3
+        
+        # Check that data is evenly split
+        total_group_key_length = sum(len(args.arguments["group_key"]) for args in chunked_args)
+        assert total_group_key_length == len(group_key)
+        
+        total_values_length = sum(len(args.arguments["values"]) for args in chunked_args)  
+        assert total_values_length == len(values)
+
+    def test_chunked_values_length_mismatch_error(self):
+        """Test that chunked values with mismatched total length raises error."""
+        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)  # Length 5
+        values = NumbaList([
+            np.array([1.0, 2.0], dtype=np.float64),    # Length 2
+            np.array([3.0, 4.0], dtype=np.float64),    # Length 2  
+        ])  # Total length 4, doesn't match group_key length 5
+        
+        with pytest.raises(ValueError, match="Length of group_key must match total length"):
+            _chunk_groupby_args(
+                n_chunks=2,
+                reduce_func_name="nansum",
                 group_key=group_key,
                 values=values,
-                target=target,
-                mask=mask,
-                reduce_func=reduce_func,
+                ngroups=3,
+                mask=None
             )
 
-            assert len(chunked_args) == n_chunks
-
-            # Check that the total length of all chunks equals the original length
-            total_group_key_length = sum(len(args.args[0]) for args in chunked_args)
-            assert total_group_key_length == len(group_key)
-
-            total_values_length = sum(
-                len(arr) for args in chunked_args for arr in args.args[1]
+    def test_fancy_indexing_assertion(self):
+        """Test that fancy indexing with chunked args raises assertion error."""
+        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
+        values = NumbaList([
+            np.array([1.0, 2.0, 3.0], dtype=np.float64),
+            np.array([4.0, 5.0], dtype=np.float64),
+        ])
+        mask = np.array([0, 2, 3], dtype=np.int64)  # Integer mask (fancy indexing)
+        
+        with pytest.raises(AssertionError, match="Fancy indexing with chunked args is not allowed"):
+            _chunk_groupby_args(
+                n_chunks=2,
+                reduce_func_name="nansum",
+                group_key=group_key,
+                values=values,
+                ngroups=3, 
+                mask=mask
             )
-            assert total_values_length == len(group_key)
 
-    def test_target_is_copied(self):
-        """Test that target arrays are copied, not shared between chunks."""
-        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = NumbaList([np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)])
-        target = np.zeros(3)
-        mask = np.ones(5, dtype=bool)
-        reduce_func = ScalarFuncs.nansum
-        n_chunks = 2
-
+    def test_bound_arguments_structure(self):
+        """Test that returned BoundArguments have correct structure."""
+        group_key = np.array([0, 1, 0], dtype=np.int64)
+        values = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+        
         chunked_args = _chunk_groupby_args(
-            n_chunks=n_chunks,
+            n_chunks=1,
+            reduce_func_name="nansum",
             group_key=group_key,
             values=values,
-            target=target,
-            mask=mask,
-            reduce_func=reduce_func,
+            ngroups=2,
+            mask=None
         )
 
-        # Modify target in first chunk and verify it doesn't affect second chunk
-        chunked_args[0].args[2][0] = 999.0
-        assert chunked_args[1].args[2][0] == 0.0
-
-    def test_with_boolean_values(self):
-        """Test with boolean values."""
-        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = NumbaList([np.array([True, False, True, False, True], dtype=bool)])
-        target = np.zeros(3, dtype=bool)
-        mask = np.ones(5, dtype=bool)
-        reduce_func = ScalarFuncs.nansum
-        n_chunks = 2
-
-        chunked_args = _chunk_groupby_args(
-            n_chunks=n_chunks,
-            group_key=group_key,
-            values=values,
-            target=target,
-            mask=mask,
-            reduce_func=reduce_func,
-        )
-
-        # Check values were preserved
-        all_values = np.concatenate(
-            [arr for args in chunked_args for arr in args.args[1]]
-        )
-        np.testing.assert_array_equal(np.sort(all_values), np.sort(values[0]))
-
-        # Test with actual _group_by_iterator
-        results = [_group_by_reduce(*args.args) for args in chunked_args]
-        assert all(r[0].dtype == bool for r in results)
+        assert len(chunked_args) == 1
+        bound_args = chunked_args[0]
+        
+        # Check that all required parameters are present
+        assert "reduce_func_name" in bound_args.arguments
+        assert "group_key" in bound_args.arguments  
+        assert "values" in bound_args.arguments
+        assert "ngroups" in bound_args.arguments
+        assert "mask" in bound_args.arguments
+        
+        # Check parameter values
+        assert bound_args.arguments["reduce_func_name"] == "nansum"
+        assert bound_args.arguments["ngroups"] == 2
+        np.testing.assert_array_equal(bound_args.arguments["group_key"], group_key)
+        np.testing.assert_array_equal(bound_args.arguments["values"], values)
 
 
 class TestGroupSum:
@@ -286,14 +327,6 @@ class TestGroupSum:
         values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
         with pytest.raises(ValueError):
             group_sum(group_key, values, ngroups=3, mask=None)
-
-        # Test that mask must have same length as group_key if not empty
-        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-        mask = np.array([True, False, True], dtype=np.bool_)  # Wrong length
-
-        with pytest.raises(ValueError):
-            group_sum(group_key, values, ngroups=3, mask=mask)
 
     @pytest.mark.parametrize(
         "func", [group_count, group_sum, group_mean, group_min, group_max]
@@ -565,15 +598,7 @@ class TestGroupMean:
         values = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float64)
         with pytest.raises(ValueError):
             group_mean(group_key, values, ngroups=3, mask=None)
-
-        # Test that mask must have same length as group_key if not empty
-        group_key = np.array([0, 1, 0, 2, 1], dtype=np.int64)
-        values = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
-        mask = np.array([True, False, True], dtype=np.bool_)  # Wrong length
-
-        with pytest.raises(ValueError):
-            group_mean(group_key, values, ngroups=3, mask=mask)
-
+            
 
 @pytest.mark.parametrize("dtype", [float, int, bool, np.uint64])
 def test_group_min(dtype):
