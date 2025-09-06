@@ -180,16 +180,19 @@ def check_data_inputs_aligned(
 
 
 def parallel_map(
-    func: Callable[[T], R], arg_list: List[T], max_workers: Optional[int] = None
+    func: Callable[[T], R],
+    arg_list: List[T],
+    max_workers: Optional[int] = None,
+    use_threads: bool = True,
 ) -> List[R]:
     """
     Apply a function to each item in a list in parallel using concurrent.futures.
-
 
     Args:
         func: The function to apply to each item
         arg_list: List of items to process
         max_workers: Maximum number of worker threads or processes (None = auto)
+        use_threads: If True, use threads; if False, use processes
 
     Returns:
         List of results in the same order as the input items
@@ -204,7 +207,12 @@ def parallel_map(
     if len(arg_list) == 1:
         return [func(*arg_list[0])]
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+    if use_threads:
+        Executor = concurrent.futures.ThreadPoolExecutor
+    else:
+        Executor = concurrent.futures.ProcessPoolExecutor
+
+    with Executor(max_workers=max_workers) as executor:
         # Submit all tasks and store the future objects
         future_to_index = {
             executor.submit(func, *args): i for i, args in enumerate(arg_list)
