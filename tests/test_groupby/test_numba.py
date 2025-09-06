@@ -9,6 +9,8 @@ from pandas_plus.groupby.numba import (
     ScalarFuncs,
     _chunk_groupby_args,
     _apply_group_method_single_chunk,
+    combine_chunk_results_for_unfactorized_key,
+    combine_chunk_results_for_factorized_key,
     group_nearby_members,
     group_count,
     group_mean,
@@ -1222,3 +1224,264 @@ def test_group_by_methods_vs_pandas(method, values, n_threads):
     result = func(group_key, values, ngroups, n_threads=n_threads)
     expected = pd.Series(values).groupby(group_key).agg(method)
     np.testing.assert_array_almost_equal(result, expected.values)
+
+
+class TestCombineChunkResultsForUnfactorizedKey:
+    """Test suite for combine_chunk_results_for_unfactorized_key function."""
+
+    def test_basic_combination_without_counts(self):
+        """Test basic combination of chunks without count tracking."""
+        chunks = [np.array([10.0, 20.0]), np.array([30.0, 5.0])]
+        labels = [np.array(['A', 'B']), np.array(['A', 'C'])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, None
+        )
+        
+        # Check that all labels are present
+        expected_labels = pd.Index(['A', 'B', 'C'])
+        pd.testing.assert_index_equal(all_labels.sort_values(), expected_labels.sort_values())
+        
+        # Check combined values - A should be 10+30=40, B=20, C=5
+        assert combined.loc['A'] == 40.0
+        assert combined.loc['B'] == 20.0
+        assert combined.loc['C'] == 5.0
+        
+        # Count should be None when not provided
+        assert combined_count is None
+
+    def test_basic_combination_with_counts(self):
+        """Test basic combination of chunks with count tracking."""
+        chunks = [np.array([10.0, 20.0]), np.array([30.0, 5.0])]
+        labels = [np.array(['A', 'B']), np.array(['A', 'C'])]
+        counts = [np.array([2, 1]), np.array([3, 1])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, counts
+        )
+        
+        # Check combined values
+        assert combined.loc['A'] == 40.0
+        assert combined.loc['B'] == 20.0
+        assert combined.loc['C'] == 5.0
+        
+        # Check combined counts - A should be 2+3=5, B=1, C=1
+        assert combined_count.loc['A'] == 5
+        assert combined_count.loc['B'] == 1
+        assert combined_count.loc['C'] == 1
+
+    def test_no_overlapping_groups(self):
+        """Test combination when chunks have completely different groups."""
+        chunks = [np.array([10.0, 20.0]), np.array([30.0, 40.0])]
+        labels = [np.array(['A', 'B']), np.array(['C', 'D'])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, None
+        )
+        
+        # Check that all labels are present
+        expected_labels = pd.Index(['A', 'B', 'C', 'D'])
+        pd.testing.assert_index_equal(all_labels.sort_values(), expected_labels.sort_values())
+        
+        # Check combined values - no combination needed
+        assert combined.loc['A'] == 10.0
+        assert combined.loc['B'] == 20.0
+        assert combined.loc['C'] == 30.0
+        assert combined.loc['D'] == 40.0
+
+    def test_string_group_labels(self):
+        """Test with string group labels."""
+        chunks = [np.array([100.0, 200.0]), np.array([50.0, 75.0])]
+        labels = [np.array(['group1', 'group2']), np.array(['group1', 'group3'])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, None
+        )
+        
+        # Check combined values
+        assert combined.loc['group1'] == 150.0  # 100 + 50
+        assert combined.loc['group2'] == 200.0
+        assert combined.loc['group3'] == 75.0
+
+    def test_multiple_chunks(self):
+        """Test combination with more than 2 chunks."""
+        chunks = [np.array([10.0, 20.0]), np.array([15.0, 25.0]), np.array([5.0, 10.0])]
+        labels = [np.array(['A', 'B']), np.array(['A', 'B']), np.array(['A', 'C'])]
+        counts = [np.array([1, 1]), np.array([2, 2]), np.array([1, 1])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, counts
+        )
+        
+        # A appears in all chunks: 10 + 15 + 5 = 30
+        # B appears in first two chunks: 20 + 25 = 45  
+        # C appears only in last chunk: 10
+        assert combined.loc['A'] == 30.0
+        assert combined.loc['B'] == 45.0
+        assert combined.loc['C'] == 10.0
+        
+        # Check counts
+        assert combined_count.loc['A'] == 4  # 1 + 2 + 1
+        assert combined_count.loc['B'] == 3  # 1 + 2 + 0
+        assert combined_count.loc['C'] == 1  # 0 + 0 + 1
+
+    def test_integer_group_labels(self):
+        """Test with integer group labels (non-factorized)."""
+        chunks = [np.array([5.0, 10.0]), np.array([15.0, 20.0])]
+        labels = [np.array([10, 20]), np.array([10, 30])]  # Non-continuous integers
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, None
+        )
+        
+        # Check combined values
+        assert combined.loc[10] == 20.0  # 5 + 15
+        assert combined.loc[20] == 10.0
+        assert combined.loc[30] == 20.0
+
+    def test_empty_chunks(self):
+        """Test behavior with empty chunks."""
+        chunks = [np.array([]), np.array([10.0, 20.0])]
+        labels = [np.array([]), np.array(['A', 'B'])]
+        
+        combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
+            "nansum", chunks, labels, None
+        )
+        
+        # Should handle empty chunks gracefully
+        expected_labels = pd.Index(['A', 'B'])
+        pd.testing.assert_index_equal(all_labels.sort_values(), expected_labels.sort_values())
+        assert combined.loc['A'] == 10.0
+        assert combined.loc['B'] == 20.0
+
+
+class TestCombineChunkResultsForFactorizedKey:
+    """Test suite for combine_chunk_results_for_factorized_key function."""
+
+    def test_basic_combination_without_counts(self):
+        """Test basic combination of chunks without count tracking."""
+        chunks = [np.array([10.0, 20.0, 30.0]), np.array([5.0, 15.0, 25.0])]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, None
+        )
+        
+        # Check combined values - element-wise addition
+        expected = np.array([15.0, 35.0, 55.0])  # [10+5, 20+15, 30+25]
+        np.testing.assert_array_equal(combined, expected)
+        
+        # Count should be 0 when not provided
+        assert combined_count == 0
+
+    def test_basic_combination_with_counts(self):
+        """Test basic combination of chunks with count tracking."""
+        chunks = [np.array([10.0, 20.0, 30.0]), np.array([5.0, 15.0, 25.0])]
+        counts = [np.array([2, 3, 1]), np.array([1, 2, 4])]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, counts
+        )
+        
+        # Check combined values
+        expected = np.array([15.0, 35.0, 55.0])
+        np.testing.assert_array_equal(combined, expected)
+        
+        # Check combined counts - element-wise addition
+        expected_counts = np.array([3, 5, 5])  # [2+1, 3+2, 1+4]
+        np.testing.assert_array_equal(combined_count, expected_counts)
+
+    def test_multiple_chunks(self):
+        """Test combination with more than 2 chunks."""
+        chunks = [
+            np.array([10.0, 20.0]), 
+            np.array([5.0, 10.0]), 
+            np.array([2.0, 3.0])
+        ]
+        counts = [
+            np.array([1, 2]), 
+            np.array([1, 1]), 
+            np.array([2, 1])
+        ]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, counts
+        )
+        
+        # Sequential combination: [10,20] + [5,10] = [15,30], then [15,30] + [2,3] = [17,33]
+        expected = np.array([17.0, 33.0])
+        np.testing.assert_array_equal(combined, expected)
+        
+        # Sequential count combination: [1,2] + [1,1] = [2,3], then [2,3] + [2,1] = [4,4]
+        expected_counts = np.array([4, 4])
+        np.testing.assert_array_equal(combined_count, expected_counts)
+
+    def test_single_chunk(self):
+        """Test behavior with single chunk."""
+        chunks = [np.array([10.0, 20.0, 30.0])]
+        counts = [np.array([1, 2, 3])]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, counts
+        )
+        
+        # Single chunk should be returned as-is
+        expected = np.array([10.0, 20.0, 30.0])
+        np.testing.assert_array_equal(combined, expected)
+        
+        expected_counts = np.array([1, 2, 3])
+        np.testing.assert_array_equal(combined_count, expected_counts)
+
+    def test_integer_arrays(self):
+        """Test with integer arrays."""
+        chunks = [np.array([1, 2, 3], dtype=np.int64), np.array([4, 5, 6], dtype=np.int64)]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, None
+        )
+        
+        expected = np.array([5, 7, 9], dtype=np.int64)
+        np.testing.assert_array_equal(combined, expected)
+        assert combined_count == 0
+
+    def test_nan_handling(self):
+        """Test handling of NaN values in chunks."""
+        chunks = [
+            np.array([1.0, np.nan, 3.0]), 
+            np.array([np.nan, 2.0, 4.0])
+        ]
+        
+        combined, combined_count = combine_chunk_results_for_factorized_key(
+            "nansum", chunks, None
+        )
+        
+        # nansum should handle NaN values properly
+        # Position 0: 1.0 + NaN = 1.0 (nansum ignores NaN)
+        # Position 1: NaN + 2.0 = 2.0 (nansum ignores NaN)
+        # Position 2: 3.0 + 4.0 = 7.0
+        # However, if the first value is NaN, the result becomes NaN (cumulative effect)
+        expected = np.array([1.0, np.nan, 7.0])
+        np.testing.assert_array_equal(combined, expected)
+
+    def test_different_reduce_functions(self):
+        """Test with different reduction functions."""
+        chunks = [np.array([10.0, 5.0, 8.0]), np.array([3.0, 12.0, 2.0])]
+        
+        # Test with nanmax
+        combined_max, _ = combine_chunk_results_for_factorized_key(
+            "nanmax", chunks, None
+        )
+        expected_max = np.array([10.0, 12.0, 8.0])  # [max(10,3), max(5,12), max(8,2)]
+        np.testing.assert_array_equal(combined_max, expected_max)
+        
+        # Test with nanmin  
+        combined_min, _ = combine_chunk_results_for_factorized_key(
+            "nanmin", chunks, None
+        )
+        expected_min = np.array([3.0, 5.0, 2.0])  # [min(10,3), min(5,12), min(8,2)]
+        np.testing.assert_array_equal(combined_min, expected_min)
+
+    def test_empty_chunks_list(self):
+        """Test behavior with empty chunks list."""
+        with pytest.raises(IndexError):
+            # Should raise IndexError when trying to access chunks[0]
+            combine_chunk_results_for_factorized_key("nansum", [], None)

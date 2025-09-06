@@ -436,17 +436,17 @@ def _group_by_reduce(
 ):
     """
     Core numba-compiled groupby reduction function with optional indexing.
-    
+
     This is the low-level function that performs the actual groupby reduction operation.
     It iterates through the data and applies a reduction function to accumulate values
     within each group. Supports optional indexing for masked operations.
-    
+
     Parameters
     ----------
     group_key : np.ndarray
         1D integer array where each element indicates the group index for that row.
         Negative values indicate null/missing groups and are skipped.
-    values : np.ndarray  
+    values : np.ndarray
         1D array of values to be aggregated. Must be same length as group_key.
     target : np.ndarray
         Pre-allocated array to store the reduction results for each group.
@@ -460,13 +460,13 @@ def _group_by_reduce(
     check_in_bounds : bool, default True
         Whether to validate that indexer values are within bounds of the arrays.
         Set to False when indexer is guaranteed to be valid (e.g., from nonzero()).
-        
+
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
         - target: Array of aggregated values for each group
         - count: Array of counts for each group indicating how many values were processed
-        
+
     Notes
     -----
     - This function is JIT-compiled with numba for optimal performance
@@ -506,11 +506,11 @@ def _apply_group_method_single_chunk(
 ):
     """
     Apply a single reduction function to a chunk of grouped data.
-    
+
     This function serves as a high-level wrapper around _group_by_reduce that handles
     input conversion, mask processing, and target array preparation. It's designed to
     work with a single chunk of data and is commonly used in parallel processing scenarios.
-    
+
     Parameters
     ----------
     reduce_func_name : str
@@ -525,25 +525,25 @@ def _apply_group_method_single_chunk(
     mask : Optional[ArrayType1D], optional
         Boolean mask or integer indices to filter which elements to process.
         If boolean, True values indicate elements to include.
-        
+
     Returns
     -------
     tuple[np.ndarray, np.ndarray]
         - target: Array of aggregated values for each group (length=ngroups)
         - count: Array of counts for each group indicating number of values processed
-        
+
     Notes
     -----
     - Converts input arrays to numpy format automatically
     - Boolean masks are converted to integer indices using nonzero()
     - Target array is pre-allocated with appropriate dtype and initial values
     - Function signature is checked to ensure group_key and values are aligned
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import _apply_group_method_single_chunk
-    >>> 
+    >>>
     >>> group_key = np.array([0, 1, 0, 1, 2])
     >>> values = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     >>> target, count = _apply_group_method_single_chunk(
@@ -576,28 +576,28 @@ def _apply_group_method_single_chunk(
 def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
     """
     Apply a reduction function element-wise to pairs of arrays using parallel processing.
-    
+
     This function takes two arrays of equal length and applies a reduction function
     to each pair of corresponding elements. It's optimized for parallel execution
     using numba's prange for better performance on multi-core systems.
-    
+
     Parameters
     ----------
     x : np.ndarray
         First input array. Must have the same length as y.
-    y : np.ndarray  
+    y : np.ndarray
         Second input array. Must have the same length as x.
     reducer : Callable
         Reduction function from ScalarFuncs (e.g., ScalarFuncs.nansum, ScalarFuncs.nanmax).
         Must accept (value1, value2, count) and return (result, updated_count).
         The count parameter is fixed at 1 for this function.
-        
+
     Returns
     -------
     np.ndarray
         Array of the same length as inputs containing the element-wise reduction results.
         Only the reduced values are returned (not the counts).
-        
+
     Notes
     -----
     - This function is JIT-compiled with numba and runs in parallel using prange
@@ -605,14 +605,14 @@ def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
     - The reducer function is called with count=1 for each pair
     - Used primarily for combining results from chunked parallel operations
     - The function assumes x contains accumulated values that will be combined with y
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import reduce_array_pair, ScalarFuncs
-    >>> 
+    >>>
     >>> x = np.array([1.0, 3.0, 5.0])
-    >>> y = np.array([2.0, 4.0, 6.0]) 
+    >>> y = np.array([2.0, 4.0, 6.0])
     >>> result = reduce_array_pair(x, y, ScalarFuncs.nansum)
     >>> print(result)  # [3.0, 7.0, 11.0]
     """
@@ -623,22 +623,22 @@ def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
 
 
 def combine_chunk_results_for_unfactorized_key(
-    chunk_reducer: Callable,
+    reduce_func_name: str,
     chunks: List[np.ndarray],
     labels: List[np.ndarray],
     counts: Optional[List[np.ndarray]] = None,
 ):
     """
     Combine chunk results for unfactorized (non-continuous integer) group keys.
-    
+
     This function handles the case where group keys are not factorized (e.g., string
     labels, non-continuous integers). It creates a unified index from all chunk labels
     and combines the corresponding values using the specified reduction function.
-    
+
     Parameters
     ----------
-    chunk_reducer : Callable
-        Reduction function from ScalarFuncs (e.g., ScalarFuncs.nansum, ScalarFuncs.nanmax).
+    reduce_func_name : str
+        Name of reduction function from ScalarFuncs (e.g., "nansum", "nanmax").
         Used to combine values across chunks for each group.
     chunks : List[np.ndarray]
         List of result arrays from each chunk, one per chunk processed.
@@ -649,7 +649,7 @@ def combine_chunk_results_for_unfactorized_key(
     counts : Optional[List[np.ndarray]], default None
         List of count arrays for each chunk, used for operations that need to
         track the number of observations per group. If None, counts are not tracked.
-        
+
     Returns
     -------
     tuple[pd.Series, pd.Series | None, pd.Index]
@@ -659,19 +659,19 @@ def combine_chunk_results_for_unfactorized_key(
             Series with combined counts per group if counts were provided, None otherwise.
         all_labels : pd.Index
             Union of all group labels from all chunks.
-            
+
     Notes
     -----
     - Used when group keys are not factorized (e.g., string group names)
     - Creates a pandas Index union to handle non-overlapping groups across chunks
     - Uses reduce_array_pair to combine values for groups that appear in multiple chunks
     - More memory intensive than factorized key combination due to pandas operations
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import combine_chunk_results_for_unfactorized_key, ScalarFuncs
-    >>> 
+    >>>
     >>> chunks = [np.array([10.0, 20.0]), np.array([30.0, 5.0])]
     >>> labels = [np.array(['A', 'B']), np.array(['A', 'C'])]
     >>> combined, combined_count, all_labels = combine_chunk_results_for_unfactorized_key(
@@ -680,7 +680,10 @@ def combine_chunk_results_for_unfactorized_key(
     >>> print(combined)  # A: 40.0, B: 20.0, C: 5.0
     """
     all_labels = reduce(pd.Index.union, map(pd.Index, labels))
-    combined = pd.Series(index=all_labels)
+    target = _build_target_for_groupby(
+        chunks[0].dtype, reduce_func_name, len(all_labels)
+    )
+    combined = pd.Series(target, index=all_labels)
     if counts is None:
         counts = [None] * len(chunks)
         combined_count = None
@@ -688,7 +691,7 @@ def combine_chunk_results_for_unfactorized_key(
         combined_count = pd.Series(0, index=all_labels)
     for key, chunk, count in zip(labels, chunks, counts):
         combined.loc[key] = reduce_array_pair(
-            combined.loc[key].values, chunk, chunk_reducer
+            combined.loc[key].values, chunk, getattr(ScalarFuncs, reduce_func_name)
         )
         if combined_count is not None:
             combined_count.loc[key] = combined_count.loc[key] + count
@@ -697,21 +700,21 @@ def combine_chunk_results_for_unfactorized_key(
 
 
 def combine_chunk_results_for_factorized_key(
-    chunk_reducer: Callable,
+    reduce_func_name: str,
     chunks: List[np.ndarray],
     counts: Optional[List[np.ndarray]] = None,
 ):
     """
     Combine chunk results for factorized (continuous integer) group keys.
-    
+
     This function handles the case where group keys are factorized (0, 1, 2, ..., n-1).
     Since factorized keys have a known, continuous structure, this function can efficiently
     combine results by directly applying the reduction function element-wise across chunks.
-    
+
     Parameters
     ----------
-    chunk_reducer : Callable
-        Reduction function from ScalarFuncs (e.g., ScalarFuncs.nansum, ScalarFuncs.nanmax).
+    reduce_func_name : str
+        Name of reduction function from ScalarFuncs (e.g., "nansum", "nanmax").
         Used to combine values across chunks for each group position.
     chunks : List[np.ndarray]
         List of result arrays from each chunk, one per chunk processed.
@@ -720,7 +723,7 @@ def combine_chunk_results_for_factorized_key(
     counts : Optional[List[np.ndarray]], default None
         List of count arrays for each chunk, used for operations that need to
         track the number of observations per group. If None, counts are not tracked.
-        
+
     Returns
     -------
     tuple[np.ndarray, np.ndarray | int]
@@ -728,19 +731,19 @@ def combine_chunk_results_for_factorized_key(
             Array with the combined results for all groups, with the same length as input chunks.
         combined_count : np.ndarray | int
             Combined counts per group if counts were provided, otherwise 0.
-            
+
     Notes
     -----
     - Used when group keys are factorized (continuous integers 0, 1, 2, ...)
     - More memory efficient than unfactorized key combination due to direct array operations
     - All chunks must have the same length since they represent the same groups
     - Uses reduce_array_pair sequentially to combine chunks pairwise
-    
+
     Examples
     --------
     >>> import numpy as np
     >>> from pandas_plus.groupby.numba import combine_chunk_results_for_factorized_key, ScalarFuncs
-    >>> 
+    >>>
     >>> chunks = [np.array([10.0, 20.0, 30.0]), np.array([5.0, 15.0, 25.0])]
     >>> combined, combined_count = combine_chunk_results_for_factorized_key(
     ...     ScalarFuncs.nansum, chunks, None
@@ -756,7 +759,7 @@ def combine_chunk_results_for_factorized_key(
         combined_count = counts[0]
 
     for chunk, count in zip(chunks[1:], counts[1:]):
-        combined = reduce_array_pair(combined, chunk, chunk_reducer)
+        combined = reduce_array_pair(combined, chunk, getattr(ScalarFuncs, reduce_func_name))
         combined_count = combined_count + count
 
     return combined, combined_count
@@ -852,11 +855,8 @@ def _group_func_wrap(
         if counting:
             chunks = counts
 
-        chunk_reducer = (
-            ScalarFuncs.sum if counting else getattr(ScalarFuncs, reduce_func_name)
-        )
         result, count = combine_chunk_results_for_factorized_key(
-            chunk_reducer, chunks, counts
+            "sum" if counting else reduce_func_name, chunks, counts
         )
 
     if orig_type.kind in "mM":
