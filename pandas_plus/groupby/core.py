@@ -193,7 +193,6 @@ class GroupBy:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
                 self._group_keys = [self._group_ikey]
             else:
-                # TODO: handle ChunkedArray inputs better
                 self.factorize_group_key_in_chunks(group_key)
         else:
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
@@ -238,7 +237,7 @@ class GroupBy:
             self._result_index = self._result_index.sort_values()
         arg_list = [(arr,) for arr in unique_list]
         self._group_key_pointers = parallel_map(
-            self._result_index.get_indexer, arg_list
+            self.result_index._engine.get_indexer, arg_list
         )
         self._group_keys = key_list
 
@@ -388,6 +387,104 @@ class GroupBy:
 
         return arg_dict, common_index
 
+    def _apply_gb_func_across_chunked_group_keys(
+        self, func_name: str, value_list, mask=None
+    ):
+        """
+        Apply a group-by function across chunked group keys.
+        This method handles cases where the group keys are chunked, applying the
+        specified function to each chunk and combining the results.
+        If value_list contains multiple arrays, the function is applied to each in parallel.
+        This is achieved by splitting the values according to the chunk offsets of the group keys,
+        applying the function to each chunk, and then combining the results.
+        Thus, the function is applied in parallel across both the chunks of group keys and the multiple value arrays.
+        """
+        func = getattr(numba_funcs, f"group_{func_name}")
+        group_keys = self._group_keys
+        n_values = len(value_list)
+
+        if isinstance(mask, slice):
+            raise NotImplementedError("Slice masks not yet supported")
+            # sliced_keys = []
+            # offset = 0
+            # for k in self._group_keys:
+            #     start = max(0, mask.start - offset)
+            #     k = k[start : mask.stop - offset : mask.step]
+            #     if len(k):
+            #         sliced_keys.append(k)
+            #     offset += len(k)
+            # group_keys = sliced_keys
+            # values = values[mask]
+            # mask = None
+
+        chunk_offsets = np.cumsum([len(k) for k in group_keys[:-1]])
+
+        if mask is not None:
+            if pd.api.types.is_bool_dtype(mask):
+                mask_chunks = np.array_split(mask, chunk_offsets)
+            else:
+                raise NotImplementedError()
+        else:
+            mask_chunks = [None] * len(group_keys)
+
+        arg_list = []
+        for values in value_list:
+            chunks, orig_type = numba_funcs._val_to_numpy(values, as_list=True)
+            if len(chunks) > 1:
+                # input is backed by a ChunkedArray
+                if len(chunks) == len(group_keys) and all(
+                    len(c) == len(k) for c, k in zip(chunks, group_keys)
+                ):
+                    # number of chunks matches number of group key chunks
+                    # and lengths match, so we can use the chunks directly
+                    pass
+                else:
+                    # otherwise we concatenate the chunks and split them
+                    values = np.concatenate(chunks)
+
+            chunks = np.array_split(values, chunk_offsets)
+            for keys, vals, pointers, mask_chunk in zip(
+                group_keys, chunks, self._group_key_pointers, mask_chunks
+            ):
+                bound_args = signature(func).bind(
+                    values=vals,
+                    group_key=keys,
+                    mask=mask_chunk,
+                    ngroups=len(pointers) + 1,  # +1 for null group
+                    n_threads=1,
+                    return_count=True,
+                )
+                arg_list.append(bound_args.args)
+
+        # one result per group-key chunk per value in value_list
+        results, counts = zip(*parallel_map(func, arg_list))
+
+        # Now combine the results for each value in value_list to get one result per value
+        individual_results = []
+        reducer = getattr(numba_funcs.ScalarFuncs, f"nan{func_name}")
+
+        for i in range(n_values):
+            slice_ = slice(i * len(group_keys), (i + 1) * len(group_keys))
+            results_one_value = results[slice_]
+            combined = numba_funcs._build_target_for_groupby(
+                results_one_value[0].dtype,
+                func_name,
+                len(self._result_index) + 1,
+            )
+            counts_one_value = counts[slice_]
+            count = np.zeros(len(self._result_index), dtype=np.int64)
+
+            for i, result in enumerate(results_one_value):
+                result = result[:-1]  # ignore null group
+                pointer = self._group_key_pointers[i]
+                combined[pointer] = numba_funcs.reduce_array_pair(
+                    combined[pointer], result, reducer=reducer, counts=count[pointer]
+                )
+                count[pointer] += counts_one_value[i][:-1]  # ignore null group
+            individual_results.append((combined, count))
+
+        return individual_results
+
     def _apply_gb_func(
         self,
         func_name: str,
@@ -398,6 +495,7 @@ class GroupBy:
     ):
         """
         Apply a group-by function to values.
+        If values is a collection or DataFrame/2-D array, applies the function to each element in parallel.
 
         Parameters
         ----------

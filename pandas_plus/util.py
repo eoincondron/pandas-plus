@@ -406,6 +406,8 @@ def series_is_numeric(series: pl.Series | pd.Series):
         return not (
             pd.api.types.is_object_dtype(series)
             or isinstance(dtype, pd.CategoricalDtype)
+            or pd.api.types.is_string_dtype(dtype)
+            or "dictionary" in str(dtype)
         )
 
 
