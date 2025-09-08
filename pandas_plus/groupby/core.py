@@ -6,6 +6,7 @@ import multiprocessing
 
 import numpy as np
 import pandas as pd
+from pandas.core.algorithms import factorize_array
 import polars as pl
 
 from . import numba as numba_funcs
@@ -150,7 +151,12 @@ class GroupBy:
         The keys to group by. Can be a single array-like object or a collection of them.
     """
 
-    def __init__(self, group_keys: ArrayCollection, sort: bool = True):
+    def __init__(
+        self,
+        group_keys: ArrayCollection,
+        sort: bool = True,
+        factorize_large_inputs_in_chunks: bool = True,
+    ):
         """
         Initialize the GroupBy object with the provided group keys.
         Parameters
@@ -166,16 +172,75 @@ class GroupBy:
             return
 
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
-        self._key_index = _validate_input_lengths_and_indexes(group_key_list)
+        self._key_index: pd.Index = _validate_input_lengths_and_indexes(group_key_list)
+        self._group_ikey: np.ndarray = None  # type: ignore[assignment]
+
         if len(group_key_list) == 1:
-            self._group_ikey, self._result_index = factorize_1d(group_key_list[0])
-            dtype = group_key_list[0].dtype
-            if isinstance(dtype, pd.CategoricalDtype) or "dictionary" in str(dtype):
+            group_key = group_key_list[0]
+            is_cat = isinstance(
+                group_key.dtype, pd.CategoricalDtype
+            ) or "dictionary" in str(group_key.dtype)
+            if is_cat:
                 sort = False
+
+            self._sort = sort
+
+            factorize_in_chunks = (
+                factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
+            )
+
+            if is_cat or not factorize_in_chunks:
+                self._group_ikey, self._result_index = factorize_1d(group_key)
+                self._group_keys = [self._group_ikey]
+            else:
+                # TODO: handle ChunkedArray inputs better
+                self.factorize_group_key_in_chunks(group_key)
         else:
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
+            self._group_keys = [self._group_ikey]
 
         self._sort = sort
+
+    @cached_property
+    def _group_key_lengths(self):
+        return [len(k) for k in self._group_keys]
+
+    @cached_property
+    def _chunk_offsets(self):
+        return np.cumsum(self._group_key_lengths[:-1])
+
+    def __len__(self):
+        return sum(self._group_key_lengths)
+
+    def factorize_group_key_in_chunks(self, group_key: ArrayType1D):
+        """
+        Factorize a large group key array in chunks for better performance.
+        This method splits the group key into smaller chunks, factorizes each chunk
+        in parallel. The uniques are then combined to form the final result index and
+        pointers from the individual code chunks in this index are built.
+        These pointers are later used to populate the combined outputs of group-by functions.
+
+        Parameters
+        group_key : ArrayType1D
+            The group key array to factorize.
+        """
+        group_key_list = numba_funcs._val_to_numpy(group_key, as_list=True)[0]
+        if len(group_key_list) == 1:
+            group_key_chunks = np.array_split(group_key_list[0], 4)
+        else:
+            group_key_chunks = group_key_list
+
+        chunk_results = parallel_map(factorize_array, list(zip(group_key_chunks)))
+        key_list, unique_list = zip(*chunk_results)
+
+        self._result_index = pd.Index(np.concatenate(unique_list)).unique()
+        if self._sort:
+            self._result_index = self._result_index.sort_values()
+        arg_list = [(arr,) for arr in unique_list]
+        self._group_key_pointers = parallel_map(
+            self._result_index.get_indexer, arg_list
+        )
+        self._group_keys = key_list
 
     @property
     def ngroups(self):
@@ -218,6 +283,12 @@ class GroupBy:
         return numba_funcs.build_groups_dict_optimized(
             self.group_ikey, self.result_index, self.ngroups
         )
+
+    def _unify_group_key_chunks(self):
+        if self._group_ikey is None:
+            self._group_ikey = np.concatenate(
+                [p[k] for p, k in zip(self._group_key_pointers, self._group_keys)]
+            )
 
     @property
     def group_ikey(self):
