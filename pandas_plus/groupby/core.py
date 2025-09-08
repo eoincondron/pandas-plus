@@ -19,6 +19,7 @@ from ..util import (
     get_array_name,
     series_is_numeric,
     parallel_map,
+    mean_from_sum_count,
 )
 
 ArrayCollection = (
@@ -414,7 +415,7 @@ class GroupBy:
 
     def _apply_gb_func_across_chunked_group_keys(
         self, func_name: str, value_list, mask=None
-    ):
+    ) -> List[tuple[np.ndarray, np.ndarray]]:
         """
         Apply a group-by function across chunked group keys.
         This method handles cases where the group keys are chunked, applying the
@@ -442,11 +443,13 @@ class GroupBy:
             # values = values[mask]
             # mask = None
 
-        chunk_offsets = np.cumsum([len(k) for k in group_keys[:-1]])
+        # The first offset is 0 so the first chunk will be empty, which we skip over.
+        # This allows us to generalise to the case of a single group key chunk,
+        chunk_offsets = np.cumsum(self._group_key_lengths) - self._group_key_lengths[0]
 
         if mask is not None:
             if pd.api.types.is_bool_dtype(mask):
-                mask_chunks = np.array_split(mask, chunk_offsets)
+                mask_chunks = np.array_split(mask, chunk_offsets)[1:]
             else:
                 raise NotImplementedError()
         else:
@@ -466,17 +469,26 @@ class GroupBy:
                 else:
                     # otherwise we concatenate the chunks and split them
                     values = np.concatenate(chunks)
+                    chunks = np.array_split(values, chunk_offsets)[1:]
+            else:
+                # input is a single array, so we split it into chunks
+                chunks = np.array_split(chunks[0], chunk_offsets)[1:]
 
-            chunks = np.array_split(values, chunk_offsets)
-            for keys, vals, pointers, mask_chunk in zip(
-                group_keys, chunks, self._group_key_pointers, mask_chunks
-            ):
+            for i, group_key in enumerate(group_keys):
                 bound_args = signature(func).bind(
-                    values=vals,
-                    group_key=keys,
-                    mask=mask_chunk,
-                    ngroups=len(pointers) + 1,  # +1 for null group
-                    n_threads=1,
+                    values=chunks[i].astype(orig_type),
+                    group_key=group_key,
+                    mask=mask_chunks[i],
+                    ngroups=(
+                        len(self._group_key_pointers[i]) + 1
+                        if self.key_is_chunked
+                        else self.ngroups + 1  # +1 for null group
+                    ),
+                    n_threads=(
+                        1
+                        if self.key_is_chunked
+                        else min(4, len(chunks[i]) // 1_000_000 + 1)
+                    ),
                     return_count=True,
                 )
                 arg_list.append(bound_args.args)
@@ -484,9 +496,17 @@ class GroupBy:
         # one result per group-key chunk per value in value_list
         results, counts = zip(*parallel_map(func, arg_list))
 
+        if not self.key_is_chunked:
+            # single group key chunk, so we can return the results directly
+            return list(zip(list(results), counts))
+
         # Now combine the results for each value in value_list to get one result per value
         individual_results = []
-        reducer = getattr(numba_funcs.ScalarFuncs, f"nan{func_name}")
+        # Some functions like 'first' and 'last' don't have nan versions
+        if hasattr(numba_funcs.ScalarFuncs, f"nan{func_name}"):
+            reducer = getattr(numba_funcs.ScalarFuncs, f"nan{func_name}")
+        else:
+            reducer = getattr(numba_funcs.ScalarFuncs, func_name)
 
         for i in range(n_values):
             slice_ = slice(i * len(group_keys), (i + 1) * len(group_keys))
@@ -513,78 +533,132 @@ class GroupBy:
     def _apply_gb_func(
         self,
         func_name: str,
-        values: ArrayCollection,
+        values: Optional[ArrayCollection] = None,
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
-    ):
+        observed_only: bool = True,
+    ) -> Union[pd.Series, pd.DataFrame]:
         """
         Apply a group-by function to values.
         If values is a collection or DataFrame/2-D array, applies the function to each element in parallel.
 
         Parameters
         ----------
-        func : Callable
-            Function to apply to each group
+        func_name : str
+            Name of the group-by function to apply (e.g., 'sum', 'mean', 'min', 'max', 'count', 'size')
         values : ArrayCollection
-            Values to aggregate
+            Values to aggregate. Can be None if func_name == 'size'
         mask : ArrayType1D, optional
             Boolean mask to filter values
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group
         margins : bool, default False
             If True, include a total row in the result
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data
 
         Returns
         -------
         pd.Series or pd.DataFrame
             Results of the groupby operation
         """
-        func = getattr(numba_funcs, f"group_{func_name}")
-        arg_dict, common_index = self._build_arg_list_for_function(
-            func,
-            values=values,
+        if transform and margins:
+            raise ValueError("Cannot use transform and margins together")
+
+        effective_func_name = func_name
+        func_is_mean = func_name == "mean"
+        if func_is_mean:
+            effective_func_name = "sum"  # mean is calculated as sum/count
+
+        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
+        return_1d = isinstance(values, ArrayType1D) and len(value_list) == 1
+        result_col_names = [
+            name if name else f"_arr_{i}" for i, name in enumerate(value_names)
+        ]
+
+        results = self._apply_gb_func_across_chunked_group_keys(
+            effective_func_name,
+            value_list=value_list,
             mask=mask,
-            return_count=True,
         )
-        results = parallel_map(func, arg_dict.values())
 
-        out_dict = {}
-        for key, (result, count) in zip(arg_dict, results):
-            if transform:
-                result = out_dict[key] = pd.Series(
-                    result[self.group_ikey], common_index
-                )
-            else:
-                result = out_dict[key] = pd.Series(result[:-1], self.result_index)
+        result_len = len(self.result_index)
+        result_df = pd.DataFrame(
+            {
+                key: result[:result_len]
+                for key, (result, count) in zip(result_col_names, results)
+            },
+            index=self.result_index,
+            copy=False,
+        )
 
-            return_1d = len(arg_dict) == 1 and isinstance(values, ArrayType1D)
-            out = pd.DataFrame(out_dict, copy=False)
+        count_df = pd.DataFrame(
+            {
+                key: count[:result_len]
+                for key, (result, count) in zip(result_col_names, results)
+            },
+            index=self.result_index,
+            copy=False,
+        )
+
+        if func_name in ("size", "count"):
+            result_df = count_df
+
+        if transform:
+            self._unify_group_key_chunks()
+            result_df = result_df.iloc[self.group_ikey]
+            if common_index is not None:
+                result_df.index = common_index
             if return_1d:
-                out = out.squeeze(axis=1)
-                if get_array_name(values) is None:
-                    out.name = None
+                return result_df.squeeze(axis=1)
+            else:
+                return result_df
 
-        if not transform:
-            observed = count[: len(out)] > 0
-            if not observed.all():
+        if observed_only:
+            observed = count_df.iloc[:, 0] > 0
+            if func_name != "size" and not observed.all():
                 # necessary but not sufficient condition for a group to be completely masked.
-                # count == 0 can mean an group contains only null values so here we calculate the key counts.
+                # count == 0 can mean a group contains only null values so here we calculate the key counts.
                 # Could optimize further by adding key count to numba functions outputs.
+                # For size, we know there are no nulls and so observed is related to key counts.
                 if mask is not None:
                     observed = self.size(mask=mask, observed_only=False) > 0
                 else:
                     observed = self.key_count > 0
 
-                out = out.loc[observed]
-
-            if self._sort:
-                out.sort_index(inplace=True)
+                result_df = result_df.loc[observed]
+                count_df = count_df.loc[observed]
 
         if margins:
-            out = self._add_margins(out, margins=margins, func_name=func_name)
+            result_df = self._add_margins(
+                result_df, margins=margins, func_name=func_name
+            )
+            if func_is_mean:
+                count_df = self._add_margins(
+                    count_df, margins=margins, func_name="count"
+                )
 
-        return out
+        if func_is_mean:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                result_df = pd.DataFrame(
+                    {
+                        k: mean_from_sum_count(result_df[k], count_df[k])
+                        for k in result_df
+                    }
+                )
+
+        if (
+            self._sort and not self.key_is_chunked
+        ):  # combined result for chunked keys are already sorted
+            result_df.sort_index(inplace=True)
+
+        if return_1d:
+            result_df = result_df.squeeze(axis=1)
+            if get_array_name(values) is None:
+                result_df.name = None
+
+        return result_df
 
     @groupby_method
     def size(
