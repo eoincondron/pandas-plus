@@ -668,24 +668,14 @@ class GroupBy:
         margins: bool = False,
         observed_only: bool = True,
     ):
-        out = numba_funcs.group_size(
-            group_key=self.group_ikey,
+        return self._apply_gb_func(
+            "count",
+            np.empty(len(self), dtype="int8"),
             mask=mask,
-            ngroups=self.ngroups + 1,
-            n_threads=self._n_threads,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
-        if transform:
-            return out[self.group_ikey]
-
-        out = pd.Series(out[:-1], index=self.result_index, name="size")
-
-        if observed_only and not transform:
-            out = out.loc[out > 0]
-
-        if margins:
-            out = self._add_margins(out, margins=margins, func_name="size")
-
-        return out
 
     @cached_property
     def key_count(self):
@@ -706,6 +696,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Count non-null values in each group.
@@ -737,6 +728,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Calculate sum of values in each group.
@@ -751,14 +743,20 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
-
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
         Returns
         -------
         pd.Series or pd.DataFrame
             Sum of values for each group.
         """
         return self._apply_gb_func(
-            "sum", values=values, mask=mask, transform=transform, margins=margins
+            "sum",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
 
     @groupby_method
@@ -768,26 +766,35 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
-        if not margins:
-            # TODO make a group_sum that returns counts
-            return self._apply_gb_func(
-                "mean", values=values, mask=mask, transform=transform, margins=margins
-            )
-
-        sum_, count = GroupBy.sum(**locals()), GroupBy.count(**locals())
-        if sum_.ndim == 2:
-            timestamp_cols = [col for col, d in sum_.dtypes.items() if d.kind in "mM"]
-            tmp_types = {col: "int64" for col in timestamp_cols}
-            return (
-                sum_.astype(tmp_types, copy=False)
-                .div(count)
-                .astype(sum_.dtypes[timestamp_cols], copy=False)
-            )
-        elif sum_.dtype.kind in "mM":
-            return (sum_.astype("int64") // count).astype(sum_.dtype)
-        else:
-            return sum_ / count
+        """
+        Calculate mean of values in each group.
+        Parameters
+        ----------
+        values : ArrayCollection
+            Values to calculate mean for, can be a single array/Series or a collection of them.
+        mask : ArrayType1D, optional
+            Boolean mask to filter values before calculating mean.
+        transform : bool, default False
+            If True, return values with same shape as input rather than one value per group.
+        margins : bool, default False
+            If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
+        Returns
+        -------
+        pd.Series or pd.DataFrame
+            Mean of values for each group.
+        """
+        return self._apply_gb_func(
+            "mean",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
+        )
 
     @groupby_method
     def min(
@@ -796,6 +803,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Calculate minimum value in each group.
@@ -810,6 +818,8 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -817,7 +827,12 @@ class GroupBy:
             Minimum value for each group.
         """
         return self._apply_gb_func(
-            "min", values=values, mask=mask, transform=transform, margins=margins
+            "min",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
 
     @groupby_method
@@ -827,6 +842,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Calculate maximum value in each group.
@@ -841,6 +857,8 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -848,7 +866,12 @@ class GroupBy:
             Maximum value for each group.
         """
         return self._apply_gb_func(
-            "max", values=values, mask=mask, transform=transform, margins=margins
+            "max",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
 
     @groupby_method
@@ -857,6 +880,7 @@ class GroupBy:
         values: ArrayCollection,
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
+        observed_only: bool = True,
     ):
         """Calculate the median of the provided values for each group.
         Parameters
@@ -867,6 +891,8 @@ class GroupBy:
             Boolean mask to filter values before calculating the median.
         transform : bool, default False
             If True, return values with the same shape as input rather than one value per group.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
         Returns
         -------
         pd.Series or pd.DataFrame
@@ -905,6 +931,7 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
         ddof: int = 1,
+        observed_only: bool = True,
     ):
         """
         Calculate variance of values in each group.
@@ -921,6 +948,8 @@ class GroupBy:
             If True, include a total row in the result.
         ddof : int, default 0
             Delta degrees of freedom.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -928,7 +957,9 @@ class GroupBy:
             Variance of values for each group.
         """
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        kwargs = dict(mask=mask, margins=margins, transform=transform)
+        kwargs = dict(
+            mask=mask, margins=margins, transform=transform, observed_only=observed_only
+        )
         sq_sum = self.sum(
             {k: v**2 for k, v in zip(value_names, value_list)}, **kwargs
         ).astype(float)
@@ -947,6 +978,7 @@ class GroupBy:
         transform: bool = False,
         margins: bool = False,
         ddof: int = 1,
+        observed_only: bool = True,
     ):
         """
         Calculate standard deviation of values in each group.
@@ -963,6 +995,8 @@ class GroupBy:
             If True, include a total row in the result.
         ddof : int, default 0
             Delta degrees of freedom.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -978,6 +1012,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Get the first non-null value in each group. Use nth(0) for the first value including nulls.
@@ -992,6 +1027,8 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -999,7 +1036,12 @@ class GroupBy:
             First value for each group.
         """
         return self._apply_gb_func(
-            "first", values=values, mask=mask, transform=transform, margins=margins
+            "first",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
 
     @groupby_method
@@ -1009,6 +1051,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Get the last non-null value in each group. Use nth(-1) for the last value including nulls.
@@ -1023,6 +1066,8 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -1030,7 +1075,12 @@ class GroupBy:
             Last value for each group.
         """
         return self._apply_gb_func(
-            "last", values=values, mask=mask, transform=transform, margins=margins
+            "last",
+            values=values,
+            mask=mask,
+            transform=transform,
+            margins=margins,
+            observed_only=observed_only,
         )
 
     @groupby_method
@@ -1041,6 +1091,7 @@ class GroupBy:
         mask: Optional[ArrayType1D] = None,
         transform: bool = False,
         margins: bool = False,
+        observed_only: bool = True,
     ):
         """
         Apply aggregation function(s) to values in each group.
@@ -1057,6 +1108,8 @@ class GroupBy:
             If True, return values with same shape as input rather than one value per group.
         margins : bool, default False
             If True, include a total row in the result.
+        observed_only : bool, default True
+            If True, only include groups that are observed in the data.
 
         Returns
         -------
@@ -1083,7 +1136,14 @@ class GroupBy:
 
             args_list = [
                 signature(self.agg)
-                .bind(v, agg_func=f, mask=mask, transform=transform, margins=margins)
+                .bind(
+                    v,
+                    agg_func=f,
+                    mask=mask,
+                    transform=transform,
+                    margins=margins,
+                    observed_only=observed_only,
+                )
                 .args
                 for f, v in zip(agg_func, value_list)
             ]
@@ -1378,7 +1438,7 @@ class GroupBy:
 
         # Get the appropriate numba function
         func = getattr(numba_funcs, func_name)
-        arg_dict, common_index = self._build_arg_list_for_function(
+        arg_dict, common_index = self._build_arg_dict_for_function(
             func,
             values=values,
             mask=mask,
