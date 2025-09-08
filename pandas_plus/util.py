@@ -794,8 +794,10 @@ def factorize_1d(
         values = pd.Series(values)
 
     if isinstance(values.dtype, pd.CategoricalDtype):
-        codes = np.asarray(values.cat.codes)
-        labels = pd.Index(values.cat.categories, name=values.name)
+        cat = values.cat
+        codes = np.asarray(cat.codes)
+        labels = pd.Categorical(cat.categories, ordered=cat.ordered)
+        labels = pd.Index(labels, name=values.name)
         return codes, labels
     elif pd.api.types.is_bool_dtype(values):
         codes = np.asarray(values).view("int8")
