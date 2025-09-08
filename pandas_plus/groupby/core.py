@@ -335,6 +335,12 @@ class GroupBy:
     def _preprocess_arguments(
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
     ):
+        """
+        Preprocess and validate input arguments for group-by operations.
+        Filters out non-numeric series from DataFrame inputs.
+        Checks that all inputs have the same length and compatible indexes.
+        Returns the names and list of value arrays along with a common index.
+        """
         value_list, value_names = convert_data_to_arr_list_and_keys(values)
         if isinstance(values, (pd.DataFrame, pl.DataFrame)):
             value_list, value_names = map(
@@ -348,10 +354,17 @@ class GroupBy:
                 ),
             )
 
-        to_check = value_list + [self.group_ikey]
+        to_check = value_list
         if mask is not None and pd.api.types.is_bool_dtype(mask):
-            to_check.append(mask)
+            to_check = [*to_check, mask]
+
         common_index = _validate_input_lengths_and_indexes(to_check)
+        input_len = len(to_check[0])
+
+        if input_len != len(self):
+            raise ValueError(
+                f"Length of the input values ({input_len}) does not match length of group keys ({len(self)})"
+            )
         if self._key_index is not None and common_index is not None:
             if not self._key_index.equals(common_index):
                 raise ValueError(
