@@ -573,7 +573,9 @@ def _apply_group_method_single_chunk(
 
 
 @nb.njit(parallel=True)
-def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
+def reduce_array_pair(
+    x: np.ndarray, y: np.ndarray, reducer: Callable, counts: Optional[np.ndarray] = None
+):
     """
     Apply a reduction function element-wise to pairs of arrays using parallel processing.
 
@@ -618,7 +620,11 @@ def reduce_array_pair(x: np.ndarray, y: np.ndarray, reducer: Callable):
     """
     out = x.copy()
     for i in nb.prange(len(x)):
-        out[i] = reducer(x[i], y[i], count=1)[0]
+        if counts is None:
+            count = 1
+        else:
+            count = counts[i]
+        out[i] = reducer(x[i], y[i], count=count)[0]
     return out
 
 
@@ -759,7 +765,9 @@ def combine_chunk_results_for_factorized_key(
         combined_count = counts[0]
 
     for chunk, count in zip(chunks[1:], counts[1:]):
-        combined = reduce_array_pair(combined, chunk, getattr(ScalarFuncs, reduce_func_name))
+        combined = reduce_array_pair(
+            combined, chunk, getattr(ScalarFuncs, reduce_func_name)
+        )
         combined_count = combined_count + count
 
     return combined, combined_count
