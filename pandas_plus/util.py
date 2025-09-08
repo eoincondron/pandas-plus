@@ -949,3 +949,25 @@ def factorize_2d(*vals, sort: bool = False):
         names=[get_array_name(v) for v in vals],
     )
     return multi_codes, index
+
+
+def mean_from_sum_count(sum_: pd.Series, count: pd.Series):
+    """
+    Compute mean from sum and count, handling datetime and timedelta types.
+    Parameters
+    ----------
+    sum_ : pd.Series
+        Series containing the sum values.
+    count : pd.Series
+        Series containing the count values.
+
+    Returns
+    -------
+    pd.Series
+    Series containing the computed mean values.
+
+    """
+    if sum_.dtype.kind in "mM":
+        return (sum_.astype("int64") // count).astype(sum_.dtype)
+    else:
+        return sum_ / count
