@@ -41,14 +41,15 @@ class TestGroupBy:
         else:
             mask = None
             expected = values.groupby(key, observed=True).agg(method)
-        if key_dtype == "category":
+
+        if key_dtype == "category" and key_type is not pd.Series:
             expected.index = np.array(expected.index)
 
         key = key_type(key)
         values = value_type(values)
 
         result = getattr(GroupBy, method)(key, values, mask=mask)
-    
+
         assert_pd_equal(result, expected, check_dtype=False)
         assert result.dtype.kind == expected.dtype.kind
 
@@ -306,14 +307,19 @@ class TestGroupBy:
         expected_masked = values[mask].groupby(key[mask], observed=True).sum()
         assert np.isclose(result_masked, expected_masked).all()
 
+    @pytest.mark.parametrize("factorize_in_chunks", [False, True])
     @pytest.mark.parametrize("use_mask", [False, True])
-    def test_large_data(self, use_mask):
+    def test_large_data(self, use_mask, factorize_in_chunks):
         key = pd.Series(np.random.randint(0, 1000, size=10_000_000))
         values = pd.Series(np.random.rand(10_000_000))
 
-        gb = GroupBy(key)
+        gb = GroupBy(key, factorize_large_inputs_in_chunks=factorize_in_chunks)
         assert gb.ngroups == 1000  # Check number of groups
-        assert gb.group_ikey.shape[0] == 10_000_000  # Check group indices length
+        if factorize_in_chunks:
+            assert gb.group_ikey is None
+            assert len(gb._group_key_pointers) == 4
+        else:
+            assert gb.group_ikey.shape[0] == 10_000_000  # Check group indices length
         assert gb._n_threads > 1
 
         if use_mask:
@@ -344,15 +350,14 @@ class TestGroupBy:
 
     def test_categorical_order_preserved(self):
         key = pd.Categorical.from_codes(
-            [0, 1, 2, 3, 1, 2, 3], categories=["first", "second", "third", "fourth"]
+            [0, 1, 2, 3, 1, 2, 3], categories=["first", "second", "third", "fourth"], ordered=True
         )
         values = pd.Series(np.random.rand(len(key)))
 
         gb = GroupBy(key)
         result = gb.sum(values)
-
-        expected = values.groupby(key, observed=True).sum().reindex(key.categories)
-        assert_pd_equal(result, expected)
+        expected = values.groupby(key, observed=True).sum().loc[key.categories]
+        assert_pd_equal(result, expected, check_dtype=False, check_categorical=False)
 
     @pytest.mark.parametrize("agg_func", ["sum", "median"])
     @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
