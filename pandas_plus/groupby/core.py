@@ -328,7 +328,7 @@ class GroupBy:
     @property
     def _n_threads(self) -> int:
         n_cpus = multiprocessing.cpu_count()
-        n_threads = min((n_cpus - 1) * 2, len(self.group_ikey) // 1_000_000, 4)
+        n_threads = min((n_cpus - 1) * 2, len(self) // 1_000_000, 4)
         n_threads = max(n_threads, 1)
         return n_threads
 
