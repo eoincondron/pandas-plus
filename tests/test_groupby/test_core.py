@@ -4,9 +4,10 @@ import pyarrow as pa
 import polars as pl
 import pytest
 
-from pandas_plus.groupby.core import GroupBy, add_row_margin, pivot_table
+from pandas_plus.groupby.core import GroupBy, add_row_margin, crosstab
 
 from .conftest import assert_pd_equal
+
 
 class TestGroupBy:
 
@@ -211,17 +212,17 @@ class TestGroupBy:
         """Test agg method with small data (single-threaded) and multiple agg functions."""
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
         values = pd.Series([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
-        
+
         gb = GroupBy(key)
         assert gb._n_threads == 1  # Small data should use single thread
-        
+
         # Test with single value, multiple agg functions
         result = gb.agg(values, agg_func=["sum", "mean", "min", "max"])
-        
+
         # Expected column names should match the agg function names
         expected_columns = ["sum", "mean", "min", "max"]
         assert list(result.columns) == expected_columns
-        
+
         # Compare with pandas
         expected = values.groupby(key).agg(["sum", "mean", "min", "max"])
         expected.columns = expected_columns
@@ -233,20 +234,20 @@ class TestGroupBy:
         size = 2_000_000  # Large enough to trigger multi-threading
         key = pd.Series(np.random.randint(0, 100, size=size))
         values = pd.Series(np.random.rand(size))
-        
+
         gb = GroupBy(key)
         assert gb._n_threads > 1  # Large data should use multiple threads
-        
+
         # Test with single value, multiple agg functions
         result = gb.agg(values, agg_func=["sum", "mean"])
-        
+
         # Expected column names should match the agg function names
         expected_columns = ["sum", "mean"]
         assert list(result.columns) == expected_columns
-        
+
         # Verify that results make sense (sums should be larger than means for most groups)
         assert (result["sum"] >= result["mean"]).all()
-        
+
         # Test internal consistency: mean should roughly equal sum/count for each group
         result_count = gb.count(values)
         computed_mean = result["sum"] / result_count
@@ -258,35 +259,44 @@ class TestGroupBy:
         """Test that agg method produces correct column names for different combinations."""
         key = np.array([1, 1, 2, 1, 3, 3, 6, 1, 6])
         agg_funcs = ["sum", "mean", "min", "max"][:n_agg_funcs]
-        
+
         if n_input_values == 1:
             # Single input value - column names should be agg function names
             values = pd.Series([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
             result = GroupBy.agg(key, values, agg_func=agg_funcs)
-            
+
             expected_columns = agg_funcs
             assert list(result.columns) == expected_columns
-            
+
         else:
             # Multiple input values - each gets paired with corresponding agg function
             value_dict = {
-                f"col_{i}": pd.Series([float(i+1) * j for j in [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]])
+                f"col_{i}": pd.Series(
+                    [
+                        float(i + 1) * j
+                        for j in [1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
+                    ]
+                )
                 for i in range(n_input_values)
             }
             values = pd.DataFrame(value_dict)
-            
+
             # Should match number of agg funcs to number of input columns
             if n_agg_funcs != n_input_values:
-                with pytest.raises(ValueError, match="Mismatch between number of agg funcs"):
+                with pytest.raises(
+                    ValueError, match="Mismatch between number of agg funcs"
+                ):
                     GroupBy.agg(key, values, agg_func=agg_funcs)
             else:
                 result = GroupBy.agg(key, values, agg_func=agg_funcs)
-                
+
                 expected_columns = list(value_dict.keys())
                 assert list(result.columns) == expected_columns
-                
+
                 # Each column should be aggregated with its corresponding function
-                for i, (col_name, agg_func) in enumerate(zip(expected_columns, agg_funcs)):
+                for i, (col_name, agg_func) in enumerate(
+                    zip(expected_columns, agg_funcs)
+                ):
                     expected_col = values[col_name].groupby(key).agg(agg_func)
                     assert_pd_equal(result[col_name], expected_col, check_dtype=False)
 
@@ -350,7 +360,9 @@ class TestGroupBy:
 
     def test_categorical_order_preserved(self):
         key = pd.Categorical.from_codes(
-            [0, 1, 2, 3, 1, 2, 3], categories=["first", "second", "third", "fourth"], ordered=True
+            [0, 1, 2, 3, 1, 2, 3],
+            categories=["first", "second", "third", "fourth"],
+            ordered=True,
         )
         values = pd.Series(np.random.rand(len(key)))
 
@@ -392,7 +404,11 @@ class TestGroupBy:
         result = getattr(GroupBy, method)(key, lazy_df)
         if method == "count":
             expected = pd.DataFrame(
-                {"values": pd.Series(value_data, dtype="float64").groupby(key, observed=True).count()}
+                {
+                    "values": pd.Series(value_data, dtype="float64")
+                    .groupby(key, observed=True)
+                    .count()
+                }
             )
         else:
             expected = pd.DataFrame(
@@ -447,12 +463,14 @@ def test_add_row_margin(aggfunc, nlevels):
             ).all()
 
 
-@pytest.mark.parametrize("aggfunc", ["mean", "count", "sum", "min", "max"])
+@pytest.mark.parametrize(
+    "aggfunc", ["mean", "count", "sum", "min", "max", "var", "std"]
+)
 @pytest.mark.parametrize("margins", [False, True, "row", "column"])
 @pytest.mark.parametrize("use_mask", [False, True])
-def test_pivot_table(margins, use_mask, aggfunc):
-    index = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6])
-    columns = pd.Series(["A", "B", "C", "A", "B", "C", "A", "B", "C"])
+def test_pivot_table_basic(margins, use_mask, aggfunc):
+    index = pd.Series([1, 1, 2, 1, 3, 3, 6, 1, 6] * 10)
+    columns = pd.Series(["A", "B", "C", "A", "B", "C", "A", "B", "C"] * 10)
     values = pd.Series(np.random.rand(len(index)))
 
     if use_mask:
@@ -460,12 +478,12 @@ def test_pivot_table(margins, use_mask, aggfunc):
     else:
         mask = slice(None)
 
-    result = pivot_table(
+    result = crosstab(
         index,
         columns,
         values,
         margins=margins,
-        agg_func=aggfunc,
+        aggfunc=aggfunc,
         mask=mask if use_mask else None,
     )
     expected = pd.crosstab(
@@ -475,12 +493,61 @@ def test_pivot_table(margins, use_mask, aggfunc):
         aggfunc=aggfunc,
         margins=bool(margins),
     )
+
     if margins == "row":
         del expected["All"]
     elif margins == "column":
         expected = expected.drop("All")
-    assert_pd_equal(
-        result, expected, check_dtype=False, check_names=False
+    assert_pd_equal(result, expected, check_dtype=False, check_names=False)
+
+
+@pytest.mark.parametrize("multi_values", [True, False])
+@pytest.mark.parametrize("aggfunc", ["mean", "sum", "std"])
+def test_pivot_table_multi_levels(aggfunc, multi_values):
+    index = [np.random.randint(0, 5, 100) for _ in range(2)]
+    columns = [np.random.randint(0, 5, 100) for _ in range(2)]
+    values = pd.Series(np.random.rand(100))
+
+    result = crosstab(
+        index,
+        columns,
+        values={"a": values, "b": values * 2} if multi_values else values,
+        margins=True,
+        aggfunc=aggfunc,
+    )
+    expected = pd.crosstab(
+        index,
+        columns,
+        values=values,
+        aggfunc=aggfunc,
+        margins=True,
+    )
+
+    if multi_values:
+        pd.testing.assert_frame_equal(2 * result.a, result.b)
+        result = result.a
+
+    common_index = expected.index.intersection(result.index)
+    common_cols = expected.columns.intersection(result.columns)
+    pd.testing.assert_frame_equal(
+        expected.reindex(index=common_index, columns=common_cols),
+        result.reindex(index=common_index, columns=common_cols),
+    )
+
+    expected_margin = pd.crosstab(
+        index[1], columns[0], values, aggfunc=aggfunc, margins=True
+    )
+
+    pd.testing.assert_frame_equal(
+        result.loc["All"].xs("All", 1, 1).reindex_like(expected_margin), expected_margin
+    )
+
+    expected_margin = pd.crosstab(
+        index[1], columns[1], values, aggfunc=aggfunc, margins=True
+    )
+
+    pd.testing.assert_frame_equal(
+        result.loc["All"]["All"].reindex_like(expected_margin), expected_margin
     )
 
 
@@ -818,6 +885,4 @@ def test_group_by_rolling_methods_vs_pandas_with_timedeltas(df_np_backed, method
     expected = getattr(gb["time_int"], method)()
     expected = expected.reset_index(level=0, drop=True).sort_index().astype("m8[ns]")
 
-    assert_pd_equal(
-        result, expected, check_dtype=False, check_names=False
-    )
+    assert_pd_equal(result, expected, check_dtype=False, check_names=False)

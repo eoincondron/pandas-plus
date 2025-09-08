@@ -634,12 +634,10 @@ class GroupBy:
 
         if margins:
             result_df = self._add_margins(
-                result_df, margins=margins, func_name=func_name
+                result_df, margins=margins, func_name=effective_func_name
             )
             if func_is_mean:
-                count_df = self._add_margins(
-                    count_df, margins=margins, func_name="count"
-                )
+                count_df = self._add_margins(count_df, margins=margins, func_name="sum")
 
         if func_is_mean:
             with np.errstate(invalid="ignore", divide="ignore"):
@@ -1807,11 +1805,11 @@ class GroupBy:
         )
 
 
-def pivot_table(
+def crosstab(
     index: ArrayCollection,
     columns: ArrayCollection,
-    values: ArrayCollection,
-    agg_func: str = "sum",
+    values: Optional[ArrayCollection] = None,
+    aggfunc: str = "sum",
     mask: Optional[ArrayType1D] = None,
     margins: Literal[True, False, "row", "column"] = False,
 ):
@@ -1844,50 +1842,48 @@ def pivot_table(
     n0, n1 = len(index), len(columns)
     levels = list(range(n0 + n1))
 
-    if margins not in [True, False, "row", "column"]:
-        raise ValueError
-    if margins == "row":
-        margins = levels[:n0]
-    elif margins == "column":
-        margins = levels[-n1:]
+    n0, n1 = len(index), len(columns)
+    levels = list(range(n0 + n1))
+    row_levels = levels[:n0]
+    column_levels = levels[n0:]
 
-    grouper = GroupBy(index + columns)
-    if agg_func == "size":
-        out = grouper.size(mask=mask, margins=margins)
-    else:
-        out = grouper.agg(
-            values=values,
-            agg_func=agg_func,
-            mask=mask,
-            margins=margins,
+    do_column_margin = margins in (True, "column")
+    do_row_margin = margins in (True, "row")
+
+    margin_levels = []
+    if do_row_margin:
+        margin_levels += row_levels
+    if do_column_margin:
+        margin_levels += column_levels
+
+    grouper = GroupBy(index + columns, sort=False)
+    if values is None:
+        aggregation = grouper.size(mask=mask, margins=margin_levels)
+    elif aggfunc == "size":
+        raise ValueError(
+            "aggfunc == 'size' only valid when values is None. Try count instead (for count of non-null values)"
         )
-    table = out.unstack(level=levels[n0:])
-    if table.index.nlevels == 1:
-        column_order = out.index.levels[1].intersection(table.columns)
-        table = table[column_order]
+    else:
+        aggregation = grouper.agg(
+            values=values,
+            agg_func=aggfunc,
+            mask=mask,
+            margins=margin_levels,
+        )
+
+    table = aggregation.unstack(level=column_levels)
+
+    if not do_column_margin:
+        all_levels = grouper.result_index.levels
+        if len(column_levels) == 1:
+            columns = all_levels[-1]
+        else:
+            columns = pd.MultiIndex.from_product(
+                [all_levels[lvl] for lvl in column_levels]
+            )
+        table = table[columns]
 
     return table
-
-
-def crosstab(
-    index: ArrayCollection,
-    columns: ArrayCollection,
-    mask: Optional[ArrayType1D] = None,
-    margins: bool = False,
-):
-    """
-    Alias for pivot function.
-
-    Parameters and returns are the same as for pivot.
-    """
-    return pivot_table(
-        index=index,
-        columns=columns,
-        values=None,
-        agg_func="size",
-        mask=mask,
-        margins=margins,
-    )
 
 
 def add_row_margin(
