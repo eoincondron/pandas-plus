@@ -390,7 +390,7 @@ class GroupBy:
             levels=levels,
         )
 
-    def _build_arg_list_for_function(self, func, values, mask, **kwargs):
+    def _build_arg_dict_for_function(self, func, values, mask, **kwargs):
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         n_values = len(value_list)
 
