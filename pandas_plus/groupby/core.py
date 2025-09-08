@@ -242,6 +242,18 @@ class GroupBy:
         self._group_keys = key_list
 
     @property
+    def key_is_chunked(self) -> bool:
+        """
+        Check if the group key is chunked.
+
+        Returns
+        -------
+        bool
+            True if the group key is chunked, False otherwise
+        """
+        return len(self._group_keys) > 1
+
+    @property
     def ngroups(self):
         """
         Number of groups.
