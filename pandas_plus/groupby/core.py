@@ -912,7 +912,8 @@ class GroupBy:
         tmp_df = pd.DataFrame(
             {k: v[mask] for k, v in zip(value_names, value_list)}, copy=False
         )
-        result = tmp_df.groupby(self.group_ikey[mask]).median()
+        self._unify_group_key_chunks()
+        result = tmp_df.groupby(self.group_ikey[mask], observed=observed_only).median()
         if transform:
             result = result.reindex(self.group_ikey, copy=False)
         else:
@@ -1435,9 +1436,13 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Rolling aggregation results with same shape as input.
         """
-
         # Get the appropriate numba function
         func = getattr(numba_funcs, func_name)
+
+        if self.key_is_chunked:
+            print("Unifying chunked group-key before cumulative group-by")
+            self._unify_group_key_chunks()
+
         arg_dict, common_index = self._build_arg_dict_for_function(
             func,
             values=values,
