@@ -411,16 +411,12 @@ def get_array_name(
 def to_arrow(a: ArrayType1D) -> pa.Array | pa.ChunkedArray:
     if isinstance(a, pl.Series):
         return a.to_arrow()
-    elif isinstance(a, pd.Series):
-        return pa.Array.from_pandas(a)  # type: ignore
-    elif isinstance(a, pd.Categorical):
+    elif isinstance(a, pd.core.base.PandasObject):
         return pa.Array.from_pandas(a)  # type: ignore
     elif isinstance(a, np.ndarray):
         return pa.array(a)
-    elif isinstance(a, pa.ChunkedArray):
+    elif isinstance(a, (pa.Array, pa.ChunkedArray)):
         return a  # ChunkedArray is already a PyArrow structure
-    elif isinstance(a, pa.Array):
-        return a  # Array is already a PyArrow structure
     else:
         raise TypeError(f"Cannot convert type {type(a)} to arrow")
 
