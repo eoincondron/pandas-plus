@@ -1433,7 +1433,7 @@ class TestFactorize1DComprehensive:
         codes, uniques = factorize_1d(cat)
 
         expected_codes = np.array([0, 1, 2, 0, 1])
-        expected_uniques = pd.Index(["a", "b", "c"], dtype="object")
+        expected_uniques = pd.CategoricalIndex(["a", "b", "c"])
 
         np.testing.assert_array_equal(codes, expected_codes)
         pd.testing.assert_index_equal(uniques, expected_uniques)
@@ -1444,7 +1444,7 @@ class TestFactorize1DComprehensive:
         codes, uniques = factorize_1d(cat)
 
         expected_codes = np.array([0, 1, 0])
-        expected_uniques = pd.Index(["a", "b", "c", "d"], dtype="object")
+        expected_uniques = pd.CategoricalIndex(["a", "b", "c", "d"])
 
         np.testing.assert_array_equal(codes, expected_codes)
         pd.testing.assert_index_equal(uniques, expected_uniques)
@@ -1459,7 +1459,7 @@ class TestFactorize1DComprehensive:
         codes, uniques = factorize_1d(cat)
 
         expected_codes = np.array([1, 0, 2, 1])
-        expected_uniques = pd.Index(["low", "medium", "high"], dtype="object")
+        expected_uniques = pd.CategoricalIndex(["low", "medium", "high"], ordered=True)
 
         np.testing.assert_array_equal(codes, expected_codes)
         pd.testing.assert_index_equal(uniques, expected_uniques)

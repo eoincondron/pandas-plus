@@ -307,7 +307,7 @@ class TestChunkedGroupKeys:
         result = gb_chunked.cumcount()
         assert_pd_equal(result, expected, check_dtype=False)
         # Compare with numpy arrays
-        expected = GroupBy.cumcount(data["group_keys_np"])
+        expected = GroupBy.cumcount(data["group_keys"])
 
         assert (result >= 0).all()  # Should be non-negative
         assert result.dtype == np.dtype("int64")  # Should be integer type
