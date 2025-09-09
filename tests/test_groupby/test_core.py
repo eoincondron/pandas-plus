@@ -886,3 +886,26 @@ def test_group_by_rolling_methods_vs_pandas_with_timedeltas(df_np_backed, method
     expected = expected.reset_index(level=0, drop=True).sort_index().astype("m8[ns]")
 
     assert_pd_equal(result, expected, check_dtype=False, check_names=False)
+
+
+@pytest.mark.parametrize("use_mask", [False, True])
+@pytest.mark.parametrize("partial", [False, True])
+def test_monotonic_group_key(partial, use_mask):
+    labels = np.arange(2, 1002)
+    mono_key = np.repeat(labels, 2000)
+    if partial:
+        mono_key = np.concatenate([mono_key, mono_key])
+
+    gb = GroupBy(mono_key)
+    assert gb.key_is_chunked is partial
+    assert gb.result_index.equals(pd.Index(labels))
+
+    arr = np.random.rand(len(mono_key))
+    if use_mask:
+        mask = arr > .5
+    else:
+        mask = slice(None)
+
+    result = gb.mean(arr, mask=mask)
+    expected = pd.Series(arr)[mask].groupby(mono_key[mask]).mean()
+    assert_pd_equal(result, expected)
