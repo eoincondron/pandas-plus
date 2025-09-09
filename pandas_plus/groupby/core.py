@@ -17,6 +17,7 @@ from ..util import (
     to_arrow,
     factorize_1d,
     factorize_2d,
+    monotonic_factorization,
     convert_data_to_arr_list_and_keys,
     get_array_name,
     series_is_numeric,
@@ -217,6 +218,10 @@ class GroupBy:
     def _chunk_offsets(self):
         return np.cumsum(self._group_key_lengths[:-1])
 
+    @property
+    def _n_threads_for_key_factorization(self):
+        return 4
+
     def __len__(self):
         return sum(self._group_key_lengths)
 
@@ -232,23 +237,44 @@ class GroupBy:
         group_key : ArrayType1D
             The group key array to factorize.
         """
+        # first try monotonic (increasing) factorization.
+        # Optimization for thinks like date/time buckets, cumulative counts etc.
+        # Exits as soon as it detects non-monotonicity and uses empty arrays to avoid wasted memory
+        cutoff, mono_codes, mono_uniques = monotonic_factorization(group_key)
+        mono_codes = mono_codes[:cutoff]
+        if cutoff == len(group_key):
+            # group_key is fully monotonic
+            self._group_ikey, self._result_index = mono_codes, pd.Index(mono_uniques)
+            return
+
+        use_monotonic_piece = cutoff > len(group_key) / 4
+        if use_monotonic_piece:
+            group_key = group_key[cutoff:]
+
         group_key_list = _val_to_numpy(group_key, as_list=True)[0]
         if len(group_key_list) == 1:
-            group_key_chunks = np.array_split(group_key_list[0], 4)
-        else:
+            group_key_chunks = np.array_split(
+                group_key_list[0], self._n_threads_for_key_factorization
+            )
+        else:  # already a ChunkedArray
             group_key_chunks = group_key_list
 
         chunk_results = parallel_map(factorize_array, list(zip(group_key_chunks)))
-        key_list, unique_list = zip(*chunk_results)
+        codes_list, unique_list = zip(*chunk_results)
+
+        if use_monotonic_piece:
+            codes_list = [mono_codes, *codes_list]
+            unique_list = [mono_uniques, *unique_list]
 
         self._result_index = pd.Index(np.concatenate(unique_list)).unique()
+
         if self._sort:
             self._result_index = self._result_index.sort_values()
         arg_list = [(arr,) for arr in unique_list]
         self._group_key_pointers = parallel_map(
             self.result_index._engine.get_indexer, arg_list
         )
-        self._group_ikey = pa.chunked_array(key_list)
+        self._group_ikey = pa.chunked_array(codes_list)
 
     @property
     def key_is_chunked(self) -> bool:
@@ -455,7 +481,7 @@ class GroupBy:
         # The first offset is 0 so the first chunk will be empty, which we skip over.
         # This allows us to generalise to the case of a single group key chunk
         group_key_lengths = [len(k) for k in group_keys]
-        chunk_offsets = np.cumsum(group_key_lengths) - group_key_lengths[0]
+        chunk_offsets = [0, *np.cumsum(group_key_lengths[:-1])]
 
         if mask is not None:
             if pd.api.types.is_bool_dtype(mask):

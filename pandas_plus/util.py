@@ -742,6 +742,106 @@ def factorize_arrow_arr(
     return codes, labels
 
 
+@nb.njit
+def _monotonic_factorization(arr_list, total_len):
+    codes = np.empty(total_len, dtype=np.uint32)
+    labels = np.empty(total_len, dtype=arr_list[0].dtype)
+    
+    arr_num = 0
+    arr = arr_list[arr_num]
+
+    labels[0] = arr[0]
+    n_labels = 1
+    codes[0] = 0
+    prev = arr[0]
+
+    cur_arr_pos = 0
+    for i in range(1, total_len):
+        cur_arr_pos += 1
+        if cur_arr_pos == len(arr):
+            arr_num += 1
+            arr = arr_list[arr_num]
+            cur_arr_pos = 0
+
+        x = arr[cur_arr_pos]
+        if x < prev:
+            return i, codes, labels[:n_labels]
+        elif x > prev:
+            labels[n_labels] = x
+            n_labels += 1
+        codes[i] = n_labels - 1
+        prev = x
+
+    return i + 1, codes, labels[:n_labels]
+
+
+def monotonic_factorization(arr: ArrayType1D) -> Tuple[int, np.ndarray, np.ndarray]:
+    """
+    Factorize an array using optimized monotonic factorization.
+
+    This function attempts to factorize an array by assuming it is monotonically
+    increasing. It provides a significant performance optimization for arrays that
+    are sorted or nearly sorted (such as date/time buckets, cumulative counts, etc.).
+    The function exits early as soon as it detects non-monotonicity to avoid wasted
+    computation and memory allocation.
+
+    Parameters
+    ----------
+    arr : ArrayType1D
+        Input array to factorize. Can be numpy array, pandas Series/Index/Categorical,
+        polars Series, or PyArrow Array/ChunkedArray.
+
+    Returns
+    -------
+    cutoff : int
+        Index position where monotonicity was broken, or len(arr) if the entire
+        array is monotonic. This indicates how many elements were successfully
+        processed using the optimized monotonic approach.
+    codes : np.ndarray
+        Integer codes representing the factorized values. Only elements up to
+        `cutoff` contain valid codes; remaining elements are uninitialized.
+        Shape: (len(arr),), dtype: np.uint32
+    labels : np.ndarray
+        Unique values found during monotonic factorization. Only elements up to
+        the number of unique values found are valid; remaining elements are
+        uninitialized. The dtype matches the original array's dtype.
+
+    Notes
+    -----
+    This is an optimization function that should be called before falling back
+    to general factorization methods. It's particularly effective for:
+    
+    - Time series data with increasing timestamps
+    - Cumulative counts or IDs
+    - Pre-sorted categorical data
+    - Sequential data with natural ordering
+    
+    If the function returns cutoff < len(arr), the caller should fall back to
+    general factorization methods for the complete array.
+
+    Examples
+    --------
+    >>> arr = np.array([1, 2, 3, 4, 5])  # Fully monotonic
+    >>> cutoff, codes, labels = monotonic_factorization(arr)
+    >>> cutoff
+    5
+    >>> codes
+    array([0, 1, 2, 3, 4], dtype=uint32)
+    >>> labels
+    array([1, 2, 3, 4, 5])
+
+    >>> arr = np.array([1, 2, 3, 1, 5])  # Breaks monotonicity at index 3
+    >>> cutoff, codes, labels = monotonic_factorization(arr)
+    >>> cutoff
+    3
+    """
+    arr_list, orig_type = _val_to_numpy(arr, as_list=True)
+    total_len = len(arr)
+    cutoff, codes, labels = _monotonic_factorization(arr_list, total_len)
+    labels = labels.astype(orig_type)
+    return cutoff, codes, labels
+
+
 def factorize_1d(
     values,
     sort: "bool" = False,

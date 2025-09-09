@@ -17,6 +17,7 @@ from pandas_plus.util import (
     pretty_cut,
     bools_to_categorical,
     nb_dot,
+    monotonic_factorization,
     factorize_1d,
     factorize_2d,
 )
@@ -1568,3 +1569,23 @@ class TestFactorize1DComprehensive:
 
         np.testing.assert_array_equal(codes, expected_codes)
         np.testing.assert_array_equal(uniques, expected_uniques)
+
+
+@pytest.mark.parametrize("use_chunks", [False, True])
+@pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize("arr_type", [int, "m8[ns]", float])
+def test_monotonic_factorization_on_montonic(use_chunks, partial, arr_type):
+    sorted_arr = np.repeat(2 + np.arange(6), 2).astype(arr_type)
+    expected_cutoff = len(sorted_arr)
+    if partial:
+        sorted_arr = np.concat([sorted_arr, sorted_arr])
+    if use_chunks:
+        sorted_arr = pa.chunked_array(np.array_split(sorted_arr, 5))
+
+    cutoff, codes, labels = monotonic_factorization(sorted_arr)
+    assert cutoff == expected_cutoff
+
+    expected_codes, expected_labels = factorize_1d(sorted_arr)
+    if not partial:
+        np.testing.assert_array_equal(codes, expected_codes)
+        np.testing.assert_array_equal(labels, expected_labels)
