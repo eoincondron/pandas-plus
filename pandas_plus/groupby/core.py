@@ -180,9 +180,13 @@ class GroupBy:
 
         if len(group_key_list) == 1:
             group_key = group_key_list[0]
-            is_cat = isinstance(
-                group_key.dtype, pd.CategoricalDtype
-            ) or "dictionary" in str(group_key.dtype)
+            # Check if the group key is categorical
+            if hasattr(group_key, 'dtype'):
+                is_cat = isinstance(group_key.dtype, pd.CategoricalDtype) or "dictionary" in str(group_key.dtype)
+            elif hasattr(group_key, 'type'):  # PyArrow ChunkedArray
+                is_cat = "dictionary" in str(group_key.type)
+            else:
+                is_cat = False
             if is_cat:
                 sort = False
 
@@ -228,7 +232,7 @@ class GroupBy:
         group_key : ArrayType1D
             The group key array to factorize.
         """
-        group_key_list = numba_funcs._val_to_numpy(group_key, as_list=True)[0]
+        group_key_list = _val_to_numpy(group_key, as_list=True)[0]
         if len(group_key_list) == 1:
             group_key_chunks = np.array_split(group_key_list[0], 4)
         else:
@@ -460,7 +464,7 @@ class GroupBy:
 
         arg_list = []
         for values in value_list:
-            chunks, orig_type = numba_funcs._val_to_numpy(values, as_list=True)
+            chunks, orig_type = _val_to_numpy(values, as_list=True)
             if len(chunks) > 1:
                 # input is backed by a ChunkedArray
                 if len(chunks) == len(group_keys) and all(
