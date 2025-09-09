@@ -188,9 +188,10 @@ class GroupBy:
 
             self._sort = sort
 
+            chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
             factorize_in_chunks = (
                 factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
-            ) or isinstance(to_arrow(group_key), pa.ChunkedArray)
+            ) or chunked
 
             if is_cat or not factorize_in_chunks:
                 self._group_ikey, self._result_index = factorize_1d(group_key)

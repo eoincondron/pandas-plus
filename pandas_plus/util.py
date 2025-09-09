@@ -21,7 +21,15 @@ F = TypeVar("F", bound=Callable[..., Any])
 MIN_INT = np.iinfo(np.int64).min
 MAX_INT = np.iinfo(np.int64).max
 
-ArrayType1D = Union[np.ndarray, pl.Series, pd.Series, pd.Index, pd.Categorical, pa.ChunkedArray, pa.Array]
+ArrayType1D = Union[
+    np.ndarray,
+    pl.Series,
+    pd.Series,
+    pd.Index,
+    pd.Categorical,
+    pa.ChunkedArray,
+    pa.Array,
+]
 ArrayType2D = Union[np.ndarray, pl.DataFrame, pl.LazyFrame, pd.DataFrame, pd.MultiIndex]
 
 
@@ -378,7 +386,9 @@ class NumbaReductionOps:
         return x + y**2
 
 
-def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series, pa.ChunkedArray, pa.Array]):
+def get_array_name(
+    array: Union[np.ndarray, pd.Series, pl.Series, pa.ChunkedArray, pa.Array],
+):
     """
     Get the name attribute of an array if it exists and is not empty.
 
@@ -426,6 +436,7 @@ def series_is_numeric(series: pl.Series | pd.Series):
             or pd.api.types.is_string_dtype(dtype)
             or "dictionary" in str(dtype)
         )
+
 
 def is_categorical(a):
     if isinstance(a, pd.core.base.PandasObject):
@@ -513,7 +524,18 @@ def convert_data_to_arr_list_and_keys(
         return list(data), list(names)
     elif isinstance(data, np.ndarray) and data.ndim == 2:
         return convert_data_to_arr_list_and_keys(list(data.T))
-    elif isinstance(data, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical, pa.ChunkedArray, pa.Array)):
+    elif isinstance(
+        data,
+        (
+            pd.Series,
+            pl.Series,
+            np.ndarray,
+            pd.Index,
+            pd.Categorical,
+            pa.ChunkedArray,
+            pa.Array,
+        ),
+    ):
         name = get_array_name(data)
         return [data], [name]
     elif isinstance(data, (pl.DataFrame, pl.LazyFrame, pd.DataFrame)):
@@ -733,7 +755,7 @@ def bools_to_categorical(
 
 
 def factorize_arrow_arr(
-    arr: Union[pa.Array, pl.Series, pd.Series],
+    arr: Union[pa.Array, pa.ChunkedArray, pl.Series, pd.Series],
 ) -> "tuple[np.ndarray, np.ndarray | pd.Index]":
     """
     Method for factorizing the arrow arrays, including polars Series and Pandas Series backed by pyarrow
@@ -743,6 +765,8 @@ def factorize_arrow_arr(
         arr = arr.to_arrow()
     elif isinstance(arr, pd.Series):
         arr = pa.Array.from_pandas(arr)
+    elif isinstance(arr, pa.ChunkedArray):
+        arr = arr.combine_chunks()
 
     arr = arr.dictionary_encode()
     if isinstance(arr, pa.ChunkedArray):
@@ -758,7 +782,7 @@ def factorize_arrow_arr(
 def _monotonic_factorization(arr_list, total_len):
     codes = np.empty(total_len, dtype=np.uint32)
     labels = np.empty(total_len, dtype=arr_list[0].dtype)
-    
+
     arr_num = 0
     arr = arr_list[arr_num]
 
@@ -822,12 +846,12 @@ def monotonic_factorization(arr: ArrayType1D) -> Tuple[int, np.ndarray, np.ndarr
     -----
     This is an optimization function that should be called before falling back
     to general factorization methods. It's particularly effective for:
-    
+
     - Time series data with increasing timestamps
     - Cumulative counts or IDs
     - Pre-sorted categorical data
     - Sequential data with natural ordering
-    
+
     If the function returns cutoff < len(arr), the caller should fall back to
     general factorization methods for the complete array.
 
@@ -955,7 +979,7 @@ def factorize_1d(
     >>> uniques
     Index(['a', 'b', 'c'], dtype='object')
     """
-    if isinstance(values, (pl.Series, pa.Array)) or (
+    if isinstance(values, (pl.Series, pa.Array, pa.ChunkedArray)) or (
         hasattr(values, "dtype") and isinstance(values.dtype, pd.ArrowDtype)
     ):
         return factorize_arrow_arr(values)
