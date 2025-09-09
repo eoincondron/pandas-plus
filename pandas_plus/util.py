@@ -449,6 +449,67 @@ def is_categorical(a):
         return isinstance(a, pa.DictionaryArray)
 
 
+def array_split_with_chunk_handling(
+    arr: ArrayType1D, chunk_lengths: List[int]
+) -> List[np.ndarray]:
+    """
+    Split an array into chunks with optimized handling for PyArrow ChunkedArrays.
+
+    This function efficiently splits arrays, with special optimizations for PyArrow
+    ChunkedArrays where the existing chunks align with the desired split boundaries.
+    When chunk boundaries align, it avoids expensive concatenation and re-splitting
+    operations by directly converting existing chunks to numpy arrays.
+
+    Parameters
+    ----------
+    arr : ArrayType1D
+        The array to split. Can be numpy array, pandas Series, PyArrow Array or
+        ChunkedArray, or any type supported by `to_arrow()`.
+    chunk_lengths : list of int
+        List of desired chunk lengths. Must sum to the total length of the array.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        List of numpy arrays corresponding to the requested chunks.
+
+    Raises
+    ------
+    ValueError
+        If the sum of chunk_lengths does not equal the length of the input array.
+
+    Examples
+    --------
+    >>> arr = np.array([1, 2, 3, 4, 5, 6])
+    >>> chunk_lengths = [2, 3, 1]
+    >>> chunks = array_split_with_chunk_handling(arr, chunk_lengths)
+    >>> [chunk.tolist() for chunk in chunks]
+    [[1, 2], [3, 4, 5], [6]]
+
+    >>> # Optimized case with PyArrow ChunkedArray
+    >>> chunked_arr = pa.chunked_array([pa.array([1, 2]), pa.array([3, 4, 5]), pa.array([6])])
+    >>> chunks = array_split_with_chunk_handling(chunked_arr, [2, 3, 1])
+    >>> [chunk.tolist() for chunk in chunks]
+    [[1, 2], [3, 4, 5], [6]]
+    """
+    if sum(chunk_lengths) != len(arr):
+        raise ValueError(
+            f"Sum of chunk_lengths ({sum(chunk_lengths)}) must equal array length ({len(arr)}). "
+            f"Got chunk_lengths: {chunk_lengths}"
+        )
+
+    offsets = np.cumsum(chunk_lengths)[:-1]
+    arrow = to_arrow(arr)
+
+    if isinstance(arrow, pa.ChunkedArray):
+        chunks = arrow.chunks
+        if len(chunks) == len(chunk_lengths):
+            if all(len(c) == k for c, k in zip(chunks, chunk_lengths)):
+                return [chunk.to_numpy() for chunk in chunks]
+
+    return np.array_split(arr, offsets)
+
+
 def _val_to_numpy(
     val: ArrayType1D, as_list: bool = False
 ) -> Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]:

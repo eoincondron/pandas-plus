@@ -16,6 +16,7 @@ from ..util import (
     ArrayType2D,
     to_arrow,
     is_categorical,
+    array_split_with_chunk_handling,
     factorize_1d,
     factorize_2d,
     monotonic_factorization,
@@ -475,15 +476,11 @@ class GroupBy:
             group_key = self._group_ikey
 
         group_keys = group_key.chunks if self.key_is_chunked else [group_key]
-
-        # The first offset is 0 so the first chunk will be empty, which we skip over.
-        # This allows us to generalise to the case of a single group key chunk
         group_key_lengths = [len(k) for k in group_keys]
-        chunk_offsets = [0, *np.cumsum(group_key_lengths[:-1])]
 
         if mask is not None:
             if pd.api.types.is_bool_dtype(mask):
-                mask_chunks = np.array_split(mask, chunk_offsets)[1:]
+                mask_chunks = array_split_with_chunk_handling(mask, group_key_lengths)
             else:
                 raise NotImplementedError()
         else:
@@ -491,26 +488,13 @@ class GroupBy:
 
         arg_list = []
         for values in value_list:
-            chunks, orig_type = _val_to_numpy(values, as_list=True)
-            if len(chunks) > 1:
-                # input is backed by a ChunkedArray
-                if len(chunks) == len(group_keys) and all(
-                    len(c) == len(k) for c, k in zip(chunks, group_keys)
-                ):
-                    # number of chunks matches number of group key chunks
-                    # and lengths match, so we can use the chunks directly
-                    pass
-                else:
-                    # otherwise we concatenate the chunks and split them
-                    values = np.concatenate(chunks)
-                    chunks = np.array_split(values, chunk_offsets)[1:]
-            else:
-                # input is a single array, so we split it into chunks
-                chunks = np.array_split(chunks[0], chunk_offsets)[1:]
+            value_chunks = array_split_with_chunk_handling(
+                values, chunk_lengths=group_key_lengths
+            )
 
             for i, group_key in enumerate(group_keys):
                 bound_args = signature(func).bind(
-                    values=chunks[i].view(orig_type),
+                    values=value_chunks[i],
                     group_key=group_key,
                     mask=mask_chunks[i],
                     ngroups=(
@@ -521,7 +505,7 @@ class GroupBy:
                     n_threads=(
                         1
                         if self.key_is_chunked
-                        else min(4, len(chunks[i]) // 1_000_000 + 1)
+                        else min(4, len(value_chunks[i]) // 1_000_000 + 1)
                     ),
                     return_count=True,
                 )

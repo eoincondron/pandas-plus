@@ -20,6 +20,7 @@ from pandas_plus.util import (
     monotonic_factorization,
     factorize_1d,
     factorize_2d,
+    array_split_with_chunk_handling,
 )
 
 
@@ -1589,3 +1590,212 @@ def test_monotonic_factorization_on_montonic(use_chunks, partial, arr_type):
     if not partial:
         np.testing.assert_array_equal(codes, expected_codes)
         np.testing.assert_array_equal(labels, expected_labels)
+
+
+class TestArraySplitWithChunkHandling:
+    """Test the array_split_with_chunk_handling function."""
+
+    def test_numpy_array_basic(self):
+        """Test splitting a numpy array into basic chunks."""
+        arr = np.array([1, 2, 3, 4, 5, 6])
+        chunk_lengths = [2, 3, 1]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [1, 2])
+        np.testing.assert_array_equal(result[1], [3, 4, 5])
+        np.testing.assert_array_equal(result[2], [6])
+
+    def test_pandas_series(self):
+        """Test splitting a pandas Series."""
+        series = pd.Series([10, 20, 30, 40, 50])
+        chunk_lengths = [2, 2, 1]
+
+        result = array_split_with_chunk_handling(series, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [10, 20])
+        np.testing.assert_array_equal(result[1], [30, 40])
+        np.testing.assert_array_equal(result[2], [50])
+
+    def test_pyarrow_array(self):
+        """Test splitting a PyArrow Array."""
+        arr = pa.array([1, 2, 3, 4, 5, 6, 7])
+        chunk_lengths = [3, 2, 2]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [1, 2, 3])
+        np.testing.assert_array_equal(result[1], [4, 5])
+        np.testing.assert_array_equal(result[2], [6, 7])
+
+    def test_pyarrow_chunked_array_optimized_path(self):
+        """Test the optimized path for PyArrow ChunkedArray when chunks align."""
+        # Create chunked array with chunks that align with desired split
+        chunk1 = pa.array([1, 2])
+        chunk2 = pa.array([3, 4, 5])
+        chunk3 = pa.array([6])
+        chunked_arr = pa.chunked_array([chunk1, chunk2, chunk3])
+
+        # Request splits that align with existing chunks
+        chunk_lengths = [2, 3, 1]
+
+        result = array_split_with_chunk_handling(chunked_arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [1, 2])
+        np.testing.assert_array_equal(result[1], [3, 4, 5])
+        np.testing.assert_array_equal(result[2], [6])
+
+        # Verify result arrays are numpy arrays
+        assert all(isinstance(chunk, np.ndarray) for chunk in result)
+
+    def test_pyarrow_chunked_array_fallback_path(self):
+        """Test fallback path when PyArrow ChunkedArray chunks don't align."""
+        # Create chunked array with chunks that don't align with desired split
+        chunk1 = pa.array([1, 2, 3])
+        chunk2 = pa.array([4, 5, 6])
+        chunked_arr = pa.chunked_array([chunk1, chunk2])
+
+        # Request splits that don't align with existing chunks
+        chunk_lengths = [2, 2, 2]
+
+        result = array_split_with_chunk_handling(chunked_arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [1, 2])
+        np.testing.assert_array_equal(result[1], [3, 4])
+        np.testing.assert_array_equal(result[2], [5, 6])
+
+    def test_single_chunk(self):
+        """Test splitting into a single chunk."""
+        arr = np.array([1, 2, 3, 4])
+        chunk_lengths = [4]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        assert len(result) == 1
+        np.testing.assert_array_equal(result[0], [1, 2, 3, 4])
+
+    def test_empty_array(self):
+        """Test splitting an empty array."""
+        arr = np.array([])
+        chunk_lengths = []
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        # np.array_split with empty offsets returns [array([], dtype=...)]
+        # so we expect 1 empty array, not 0 arrays
+        assert len(result) == 1
+        assert len(result[0]) == 0
+
+    def test_single_element_chunks(self):
+        """Test splitting into single element chunks."""
+        arr = np.array([10, 20, 30])
+        chunk_lengths = [1, 1, 1]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [10])
+        np.testing.assert_array_equal(result[1], [20])
+        np.testing.assert_array_equal(result[2], [30])
+
+    def test_different_dtypes(self):
+        """Test with different data types."""
+        # Float array
+        float_arr = np.array([1.1, 2.2, 3.3, 4.4])
+        result = array_split_with_chunk_handling(float_arr, [2, 2])
+        np.testing.assert_array_equal(result[0], [1.1, 2.2])
+        np.testing.assert_array_equal(result[1], [3.3, 4.4])
+
+        # String array
+        str_arr = np.array(["a", "b", "c", "d"])
+        result = array_split_with_chunk_handling(str_arr, [1, 3])
+        np.testing.assert_array_equal(result[0], ["a"])
+        np.testing.assert_array_equal(result[1], ["b", "c", "d"])
+
+    def test_error_chunk_lengths_sum_mismatch(self):
+        """Test error when chunk_lengths sum doesn't match array length."""
+        arr = np.array([1, 2, 3, 4, 5])
+        chunk_lengths = [2, 2]  # Sum is 4, but array length is 5
+
+        with pytest.raises(
+            ValueError,
+            match=r"Sum of chunk_lengths \(4\) must equal array length \(5\)",
+        ):
+            array_split_with_chunk_handling(arr, chunk_lengths)
+
+    def test_error_chunk_lengths_sum_too_large(self):
+        """Test error when chunk_lengths sum is larger than array length."""
+        arr = np.array([1, 2, 3])
+        chunk_lengths = [2, 3]  # Sum is 5, but array length is 3
+
+        with pytest.raises(
+            ValueError,
+            match=r"Sum of chunk_lengths \(5\) must equal array length \(3\)",
+        ):
+            array_split_with_chunk_handling(arr, chunk_lengths)
+
+    def test_error_message_includes_chunk_lengths(self):
+        """Test that error message includes the actual chunk_lengths for debugging."""
+        arr = np.array([1, 2, 3, 4])
+        chunk_lengths = [1, 1, 1]  # Sum is 3, but array length is 4
+
+        with pytest.raises(ValueError, match=r"Got chunk_lengths: \[1, 1, 1\]"):
+            array_split_with_chunk_handling(arr, chunk_lengths)
+
+    def test_zero_length_chunks(self):
+        """Test behavior with zero-length chunks (edge case)."""
+        arr = np.array([1, 2, 3])
+        chunk_lengths = [0, 2, 0, 1, 0]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        assert len(result) == 5
+        assert len(result[0]) == 0  # Empty chunk
+        np.testing.assert_array_equal(result[1], [1, 2])
+        assert len(result[2]) == 0  # Empty chunk
+        np.testing.assert_array_equal(result[3], [3])
+        assert len(result[4]) == 0  # Empty chunk
+
+    def test_chunked_array_different_chunk_counts(self):
+        """Test ChunkedArray with different number of chunks than requested splits."""
+        # ChunkedArray has 2 chunks, but we want 3 splits
+        chunk1 = pa.array([1, 2, 3, 4])
+        chunk2 = pa.array([5, 6])
+        chunked_arr = pa.chunked_array([chunk1, chunk2])
+
+        chunk_lengths = [2, 2, 2]  # 3 chunks requested
+
+        result = array_split_with_chunk_handling(chunked_arr, chunk_lengths)
+
+        assert len(result) == 3
+        np.testing.assert_array_equal(result[0], [1, 2])
+        np.testing.assert_array_equal(result[1], [3, 4])
+        np.testing.assert_array_equal(result[2], [5, 6])
+
+    @pytest.mark.parametrize(
+        "arr_type",
+        [
+            lambda x: np.array(x),
+            lambda x: pd.Series(x),
+            lambda x: pa.array(x),
+        ],
+    )
+    def test_consistent_results_across_types(self, arr_type):
+        """Test that results are consistent across different array types."""
+        data = [10, 20, 30, 40, 50, 60]
+        arr = arr_type(data)
+        chunk_lengths = [2, 3, 1]
+
+        result = array_split_with_chunk_handling(arr, chunk_lengths)
+
+        # Results should be the same regardless of input type
+        expected_chunks = [[10, 20], [30, 40, 50], [60]]
+
+        assert len(result) == len(expected_chunks)
+        for actual, expected in zip(result, expected_chunks):
+            np.testing.assert_array_equal(actual, expected)
