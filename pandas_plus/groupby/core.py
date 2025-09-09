@@ -8,11 +8,13 @@ import numpy as np
 import pandas as pd
 from pandas.core.algorithms import factorize_array
 import polars as pl
+import pyarrow as pa
 
 from . import numba as numba_funcs
 from ..util import (
     ArrayType1D,
     ArrayType2D,
+    to_arrow,
     factorize_1d,
     factorize_2d,
     convert_data_to_arr_list_and_keys,
@@ -174,7 +176,6 @@ class GroupBy:
 
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
         self._key_index: pd.Index = _validate_input_lengths_and_indexes(group_key_list)
-        self._group_ikey: np.ndarray = None  # type: ignore[assignment]
 
         if len(group_key_list) == 1:
             group_key = group_key_list[0]
@@ -188,22 +189,24 @@ class GroupBy:
 
             factorize_in_chunks = (
                 factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
-            )
+            ) or isinstance(to_arrow(group_key), pa.ChunkedArray)
 
             if is_cat or not factorize_in_chunks:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
-                self._group_keys = [self._group_ikey]
             else:
                 self.factorize_group_key_in_chunks(group_key)
         else:
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
-            self._group_keys = [self._group_ikey]
 
         self._sort = sort
 
     @cached_property
     def _group_key_lengths(self):
-        return [len(k) for k in self._group_keys]
+        return (
+            [len(k) for k in self._group_ikey.chunks]
+            if self.key_is_chunked
+            else [len(self.group_ikey)]
+        )
 
     @cached_property
     def _chunk_offsets(self):
@@ -240,7 +243,7 @@ class GroupBy:
         self._group_key_pointers = parallel_map(
             self.result_index._engine.get_indexer, arg_list
         )
-        self._group_keys = key_list
+        self._group_ikey = pa.chunked_array(key_list)
 
     @property
     def key_is_chunked(self) -> bool:
@@ -252,7 +255,7 @@ class GroupBy:
         bool
             True if the group key is chunked, False otherwise
         """
-        return len(self._group_keys) > 1
+        return isinstance(self._group_ikey, pa.ChunkedArray)
 
     @property
     def ngroups(self):
@@ -297,9 +300,13 @@ class GroupBy:
         )
 
     def _unify_group_key_chunks(self):
-        if self._group_ikey is None:
+        if self.key_is_chunked:
+            # Could keep it chunked here and just do the re-pointing
             self._group_ikey = np.concatenate(
-                [p[k] for p, k in zip(self._group_key_pointers, self._group_keys)]
+                [
+                    p[k]
+                    for p, k in zip(self._group_key_pointers, self._group_ikey.chunks)
+                ]
             )
 
     @property
@@ -426,26 +433,21 @@ class GroupBy:
         Thus, the function is applied in parallel across both the chunks of group keys and the multiple value arrays.
         """
         func = getattr(numba_funcs, f"group_{func_name}")
-        group_keys = self._group_keys
         n_values = len(value_list)
 
         if isinstance(mask, slice):
-            raise NotImplementedError("Slice masks not yet supported")
-            # sliced_keys = []
-            # offset = 0
-            # for k in self._group_keys:
-            #     start = max(0, mask.start - offset)
-            #     k = k[start : mask.stop - offset : mask.step]
-            #     if len(k):
-            #         sliced_keys.append(k)
-            #     offset += len(k)
-            # group_keys = sliced_keys
-            # values = values[mask]
-            # mask = None
+            group_key = self._group_ikey[mask]
+            value_list = [x[mask] for x in value_list]
+            mask = None
+        else:
+            group_key = self._group_ikey
+
+        group_keys = group_key.chunks if self.key_is_chunked else [group_key]
 
         # The first offset is 0 so the first chunk will be empty, which we skip over.
-        # This allows us to generalise to the case of a single group key chunk,
-        chunk_offsets = np.cumsum(self._group_key_lengths) - self._group_key_lengths[0]
+        # This allows us to generalise to the case of a single group key chunk
+        group_key_lengths = [len(k) for k in group_keys]
+        chunk_offsets = np.cumsum(group_key_lengths) - group_key_lengths[0]
 
         if mask is not None:
             if pd.api.types.is_bool_dtype(mask):
@@ -476,7 +478,7 @@ class GroupBy:
 
             for i, group_key in enumerate(group_keys):
                 bound_args = signature(func).bind(
-                    values=chunks[i].astype(orig_type),
+                    values=chunks[i].view(orig_type),
                     group_key=group_key,
                     mask=mask_chunks[i],
                     ngroups=(
