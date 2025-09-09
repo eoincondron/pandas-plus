@@ -423,7 +423,9 @@ class GroupBy:
             levels = None
         return add_row_margin(
             result,
-            agg_func="sum" if func_name in ("size", "count", "sum_squares") else func_name,
+            agg_func=(
+                "sum" if func_name in ("size", "count", "sum_squares") else func_name
+            ),
             levels=levels,
         )
 
@@ -1350,7 +1352,11 @@ class GroupBy:
                 )[keep]
 
         return_1d = isinstance(values, ArrayType1D)
-        result = pd.DataFrame(dict(zip(value_names, value_list)), copy=False).iloc[ilocs].set_index(out_index)
+        result = (
+            pd.DataFrame(dict(zip(value_names, value_list)), copy=False)
+            .iloc[ilocs]
+            .set_index(out_index)
+        )
         if return_1d:
             result = result.squeeze(axis=1)
 
