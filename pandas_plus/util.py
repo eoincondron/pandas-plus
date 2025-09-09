@@ -971,3 +971,14 @@ def mean_from_sum_count(sum_: pd.Series, count: pd.Series):
         return (sum_.astype("int64") // count).astype(sum_.dtype)
     else:
         return sum_ / count
+
+
+def to_arrow(a: ArrayType1D) -> pa.Array:
+    if isinstance(a, pl.Series):
+        return a.to_arrow()
+    elif isinstance(a, pd.Series):
+        return pa.Array.from_pandas(a)  # type: ignore
+    elif isinstance(a, np.ndarray):
+        return pa.array(a)
+    else:
+        raise TypeError

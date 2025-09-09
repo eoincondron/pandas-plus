@@ -19,6 +19,7 @@ from ..util import (
     parallel_map,
     NumbaReductionOps,
     _scalar_func_decorator,
+    to_arrow
 )
 from .. import nanops
 
@@ -44,13 +45,7 @@ def _val_to_numpy(
         along with the original type if casting timestamps to ints
     """
 
-    if isinstance(val, pl.Series):
-        arrow: pa.Array = val.to_arrow()
-    elif isinstance(val, pd.Series) and "pyarrow" in str(val.dtype):
-        arrow: pa.Array = pa.Array.from_pandas(val)  # type: ignore
-    else:
-        arrow = None
-
+    arrow: pa.Array = to_arrow(val)
     chunked = isinstance(
         arrow,
         pa.ChunkedArray,
