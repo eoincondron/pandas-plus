@@ -180,6 +180,7 @@ class GroupBy:
 
         group_key_list, group_key_names = convert_data_to_arr_list_and_keys(group_keys)
         self._key_index: pd.Index = _validate_input_lengths_and_indexes(group_key_list)
+        self._index_is_sorted = False
 
         if len(group_key_list) == 1:
             group_key = group_key_list[0]
@@ -263,7 +264,7 @@ class GroupBy:
 
         if self._sort:
             self._result_index = self._result_index.sort_values()
-            self._sort = False  # not necessary to sort now
+            self._index_is_sorted = True  # not necessary to sort now
 
         arg_list = [(arr,) for arr in unique_list]
         self._group_key_pointers = parallel_map(
@@ -678,7 +679,9 @@ class GroupBy:
                 result_df = result_df.loc[observed]
                 count_df = count_df.loc[observed]
 
-        if self._sort:  # combined result for chunked keys are already sorted
+        if (
+            self._sort and not self._index_is_sorted
+        ):  # combined result for chunked keys are already sorted
             result_df.sort_index(inplace=True)
 
         if margins:
@@ -692,7 +695,9 @@ class GroupBy:
             with np.errstate(invalid="ignore", divide="ignore"):
                 result_df = pd.DataFrame(
                     {
-                        k: mean_from_sum_count(result_df[k], count_df[k].reindex(result_df.index))
+                        k: mean_from_sum_count(
+                            result_df[k], count_df[k].reindex(result_df.index)
+                        )
                         for k in result_df
                     }
                 )
@@ -964,7 +969,7 @@ class GroupBy:
             result.index = self.result_index[result.index]
             if len(value_list) == 1 and isinstance(values, ArrayType1D):
                 result = result.iloc[:, 0]
-        if self._sort:
+        if self._sort and not self._index_is_sorted:
             result.sort_index(inplace=True)
         return result
 
