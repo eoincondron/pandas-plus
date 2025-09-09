@@ -1328,14 +1328,14 @@ class GroupBy:
                 )[keep]
 
         return_1d = isinstance(values, ArrayType1D)
+        result = pd.DataFrame(dict(zip(value_names, value_list)), copy=False).iloc[ilocs].set_index(out_index)
         if return_1d:
-            return pd.Series(value_list[0][ilocs], out_index)
-        else:
-            return pd.DataFrame(
-                {k: v[ilocs] for k, v in zip(value_names, value_list)},
-                index=out_index,
-                copy=False,
-            )
+            result = result.squeeze(axis=1)
+
+        if self._sort:
+            result.sort_index(inplace=True)
+
+        return result
 
     def head(self, values: ArrayCollection, n: int, keep_input_index: bool = False):
         """
@@ -1355,6 +1355,11 @@ class GroupBy:
         pd.Series or pd.DataFrame
             First n rows from each group.
         """
+        # Convert group_ikey to numpy array for numba compatibility
+        if self.key_is_chunked:
+            print("Unifying chunked group-key before finding head")
+            self._unify_group_key_chunks()
+
         ilocs = numba_funcs._find_first_or_last_n(
             group_key=self.group_ikey,
             ngroups=self.ngroups,
@@ -1383,6 +1388,10 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Last n rows from each group.
         """
+        if self.key_is_chunked:
+            print("Unifying chunked group-key before finding tail")
+            self._unify_group_key_chunks()
+
         ilocs = numba_funcs._find_first_or_last_n(
             group_key=self.group_ikey,
             ngroups=self.ngroups,
@@ -1411,6 +1420,10 @@ class GroupBy:
         pd.Series or pd.DataFrame
             The nth row from each group.
         """
+        if self.key_is_chunked:
+            print("Unifying chunked group-key before finding nth")
+            self._unify_group_key_chunks()
+
         ilocs = numba_funcs._find_nth(
             group_key=self.group_ikey, ngroups=self.ngroups, n=n
         )
