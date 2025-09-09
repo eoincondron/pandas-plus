@@ -304,6 +304,15 @@ class ScalarFuncs:
             return next_val, count + 1
 
     @_scalar_func_decorator
+    def nansum_squares(cur_sum, next_val, count):
+        if is_null(next_val):
+            return cur_sum, count
+        elif count:
+            return cur_sum + next_val ** 2, count + 1
+        else:
+            return next_val ** 2, count + 1
+
+    @_scalar_func_decorator
     def max(cur_max, next_val, count):
         if is_null(next_val):
             return next_val, count
@@ -783,6 +792,9 @@ def _group_func_wrap(
         if mask.dtype.kind in "ui":
             fancy_indexing = True
 
+    if reduce_func_name == "sum_squares":
+        values = [v.astype(float) for v in values]
+
     if values_are_chunked:
         if fancy_indexing:
             # fancy indexer doesn't play nicely with chunking values
@@ -816,7 +828,7 @@ def _group_func_wrap(
             chunks = counts
 
         result, count = combine_chunk_results_for_factorized_key(
-            "sum" if counting else reduce_func_name, chunks, counts
+            "sum" if counting or "sum" in reduce_func_name else reduce_func_name, chunks, counts
         )
 
     if orig_type.kind in "mM":
@@ -913,6 +925,17 @@ def group_sum(
     else:
         reduce_func_name = "nansum"
     return _group_func_wrap(**locals())
+
+
+def group_sum_squares(
+    group_key: ArrayType1D,
+    values: ArrayType1D,
+    ngroups: int,
+    mask: Optional[ArrayType1D] = None,
+    n_threads: int = 1,
+    return_count: bool = False,
+):
+    return _group_func_wrap(reduce_func_name = "nansum_squares", **locals())
 
 
 def group_mean(
