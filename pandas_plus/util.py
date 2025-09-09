@@ -398,6 +398,19 @@ def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
     return name
 
 
+def to_arrow(a: ArrayType1D) -> pa.Array | pa.ChunkedArray:
+    if isinstance(a, pl.Series):
+        return a.to_arrow()
+    elif isinstance(a, pd.Series):
+        return pa.Array.from_pandas(a)  # type: ignore
+    elif isinstance(a, np.ndarray):
+        return pa.array(a)
+    elif isinstance(a, pa.ChunkedArray):
+        return a  # ChunkedArray is already a PyArrow structure
+    else:
+        raise TypeError
+
+
 def series_is_numeric(series: pl.Series | pd.Series):
     dtype = series.dtype
     if isinstance(series, pl.Series):
@@ -409,6 +422,49 @@ def series_is_numeric(series: pl.Series | pd.Series):
             or pd.api.types.is_string_dtype(dtype)
             or "dictionary" in str(dtype)
         )
+
+
+def _val_to_numpy(
+    val: ArrayType1D, as_list: bool = False
+) -> Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]:
+    """
+    Convert various array types to numpy array.
+
+    Parameters
+    ----------
+    val : ArrayType1D
+        Input array to convert (numpy array, pandas Series, polars Series, etc.)
+
+    Returns
+    -------
+    Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]
+        NumPy array representation of the input, as a list of arrays or a single array,
+        along with the original type if casting timestamps to ints
+    """
+
+    arrow: pa.Array = to_arrow(val)
+    chunked = isinstance(
+        arrow,
+        pa.ChunkedArray,
+    )
+    if chunked:
+        val_list = [chunk.to_numpy() for chunk in arrow.chunks]
+    elif hasattr(val, "to_numpy"):
+        val_list = [val.to_numpy()]  # type: ignore
+    else:
+        val_list = [np.asarray(val)]
+
+    val_list, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, val_list)))
+    orig_type = orig_types[0]
+
+    if as_list:
+        return NumbaList(val_list), orig_type
+    else:
+        if len(val_list) > 1:
+            val = np.concatenate(val_list)
+        else:
+            val = val_list[0]
+        return val, orig_type
 
 
 def convert_data_to_arr_list_and_keys(
@@ -971,14 +1027,3 @@ def mean_from_sum_count(sum_: pd.Series, count: pd.Series):
         return (sum_.astype("int64") // count).astype(sum_.dtype)
     else:
         return sum_ / count
-
-
-def to_arrow(a: ArrayType1D) -> pa.Array:
-    if isinstance(a, pl.Series):
-        return a.to_arrow()
-    elif isinstance(a, pd.Series):
-        return pa.Array.from_pandas(a)  # type: ignore
-    elif isinstance(a, np.ndarray):
-        return pa.array(a)
-    else:
-        raise TypeError

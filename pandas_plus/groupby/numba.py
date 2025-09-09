@@ -19,55 +19,12 @@ from ..util import (
     parallel_map,
     NumbaReductionOps,
     _scalar_func_decorator,
-    to_arrow
+    _val_to_numpy,
 )
 from .. import nanops
 
 
 # ===== Array Preparation Methods =====
-
-
-def _val_to_numpy(
-    val: ArrayType1D, as_list: bool = False
-) -> Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]:
-    """
-    Convert various array types to numpy array.
-
-    Parameters
-    ----------
-    val : ArrayType1D
-        Input array to convert (numpy array, pandas Series, polars Series, etc.)
-
-    Returns
-    -------
-    Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]
-        NumPy array representation of the input, as a list of arrays or a single array,
-        along with the original type if casting timestamps to ints
-    """
-
-    arrow: pa.Array = to_arrow(val)
-    chunked = isinstance(
-        arrow,
-        pa.ChunkedArray,
-    )
-    if chunked:
-        val_list = [chunk.to_numpy() for chunk in arrow.chunks]
-    elif hasattr(val, "to_numpy"):
-        val_list = [val.to_numpy()]  # type: ignore
-    else:
-        val_list = [np.asarray(val)]
-
-    val_list, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, val_list)))
-    orig_type = orig_types[0]
-
-    if as_list:
-        return NumbaList(val_list), orig_type
-    else:
-        if len(val_list) > 1:
-            val = np.concatenate(val_list)
-        else:
-            val = val_list[0]
-        return val, orig_type
 
 
 def _build_target_for_groupby(np_type, operation: str, shape):
