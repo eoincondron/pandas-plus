@@ -21,7 +21,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 MIN_INT = np.iinfo(np.int64).min
 MAX_INT = np.iinfo(np.int64).max
 
-ArrayType1D = Union[np.ndarray, pl.Series, pd.Series, pd.Index, pd.Categorical]
+ArrayType1D = Union[np.ndarray, pl.Series, pd.Series, pd.Index, pd.Categorical, pa.ChunkedArray, pa.Array]
 ArrayType2D = Union[np.ndarray, pl.DataFrame, pl.LazyFrame, pd.DataFrame, pd.MultiIndex]
 
 
@@ -378,7 +378,7 @@ class NumbaReductionOps:
         return x + y**2
 
 
-def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series]):
+def get_array_name(array: Union[np.ndarray, pd.Series, pl.Series, pa.ChunkedArray, pa.Array]):
     """
     Get the name attribute of an array if it exists and is not empty.
 
@@ -407,8 +407,10 @@ def to_arrow(a: ArrayType1D) -> pa.Array | pa.ChunkedArray:
         return pa.array(a)
     elif isinstance(a, pa.ChunkedArray):
         return a  # ChunkedArray is already a PyArrow structure
+    elif isinstance(a, pa.Array):
+        return a  # Array is already a PyArrow structure
     else:
-        raise TypeError
+        raise TypeError(f"Cannot convert type {type(a)} to arrow")
 
 
 def series_is_numeric(series: pl.Series | pd.Series):
@@ -499,7 +501,7 @@ def convert_data_to_arr_list_and_keys(
         return list(data), list(names)
     elif isinstance(data, np.ndarray) and data.ndim == 2:
         return convert_data_to_arr_list_and_keys(list(data.T))
-    elif isinstance(data, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical)):
+    elif isinstance(data, (pd.Series, pl.Series, np.ndarray, pd.Index, pd.Categorical, pa.ChunkedArray, pa.Array)):
         name = get_array_name(data)
         return [data], [name]
     elif isinstance(data, (pl.DataFrame, pl.LazyFrame, pd.DataFrame)):
