@@ -22,6 +22,7 @@ from ..util import (
     series_is_numeric,
     parallel_map,
     mean_from_sum_count,
+    _val_to_numpy,
 )
 
 ArrayCollection = (
