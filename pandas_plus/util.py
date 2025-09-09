@@ -403,6 +403,8 @@ def to_arrow(a: ArrayType1D) -> pa.Array | pa.ChunkedArray:
         return a.to_arrow()
     elif isinstance(a, pd.Series):
         return pa.Array.from_pandas(a)  # type: ignore
+    elif isinstance(a, pd.Categorical):
+        return pa.Array.from_pandas(a)  # type: ignore
     elif isinstance(a, np.ndarray):
         return pa.array(a)
     elif isinstance(a, pa.ChunkedArray):
