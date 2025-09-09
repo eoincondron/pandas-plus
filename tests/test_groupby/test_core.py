@@ -326,7 +326,7 @@ class TestGroupBy:
         gb = GroupBy(key, factorize_large_inputs_in_chunks=factorize_in_chunks)
         assert gb.ngroups == 1000  # Check number of groups
         if factorize_in_chunks:
-            assert gb.group_ikey is None
+            assert gb.key_is_chunked
             assert len(gb._group_key_pointers) == 4
         else:
             assert gb.group_ikey.shape[0] == 10_000_000  # Check group indices length
@@ -368,8 +368,9 @@ class TestGroupBy:
 
         gb = GroupBy(key)
         result = gb.sum(values)
-        expected = values.groupby(key, observed=True).sum().loc[key.categories]
-        assert_pd_equal(result, expected, check_dtype=False, check_categorical=False)
+        expected = values.groupby(key, observed=True).sum().loc[result.index]
+        np.testing.assert_array_equal(result, expected)
+        assert result.index.tolist() == ["first", "second", "third", "fourth"]
 
     @pytest.mark.parametrize("agg_func", ["sum", "median"])
     @pytest.mark.parametrize("arg_name_to_be_wrong", ["self", "mask", "values"])
