@@ -401,7 +401,7 @@ class GroupBy:
             levels = None
         return add_row_margin(
             result,
-            agg_func="sum" if func_name in ("size", "count") else func_name,
+            agg_func="sum" if func_name in ("size", "count", "sum_squares") else func_name,
             levels=levels,
         )
 
@@ -513,7 +513,9 @@ class GroupBy:
         # Now combine the results for each value in value_list to get one result per value
         individual_results = []
         # Some functions like 'first' and 'last' don't have nan versions
-        if hasattr(numba_funcs.ScalarFuncs, f"nan{func_name}"):
+        if func_name in ("size", "count", "sum_squares"):
+            reducer = numba_funcs.ScalarFuncs.nansum
+        elif hasattr(numba_funcs.ScalarFuncs, f"nan{func_name}"):
             reducer = getattr(numba_funcs.ScalarFuncs, f"nan{func_name}")
         else:
             reducer = getattr(numba_funcs.ScalarFuncs, func_name)
@@ -965,17 +967,11 @@ class GroupBy:
         pd.Series or pd.DataFrame
             Variance of values for each group.
         """
-        value_names, value_list, common_index = self._preprocess_arguments(values, mask)
         kwargs = dict(
             mask=mask, margins=margins, transform=transform, observed_only=observed_only
         )
-        sq_sum = self.sum(
-            {k: v**2 for k, v in zip(value_names, value_list)}, **kwargs
-        ).astype(float)
+        sq_sum = self._apply_gb_func("sum_squares", values=values, **kwargs)
         sum_sq = self.sum(values=values, **kwargs).astype(float) ** 2
-        if sum_sq.ndim == 1:  # sq_sum is always DataFrame since we are passing a dict
-            sq_sum = sq_sum.squeeze(axis=1)
-
         count = self.count(values=values, **kwargs)
         return (sq_sum - sum_sq / count) / (count - ddof)
 
