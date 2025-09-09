@@ -184,10 +184,7 @@ class GroupBy:
         if len(group_key_list) == 1:
             group_key = group_key_list[0]
             is_cat = is_categorical(group_key)
-            if is_cat:
-                sort = False
-
-            self._sort = sort
+            self._sort = sort and not is_cat
 
             chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
             factorize_in_chunks = (
@@ -199,9 +196,8 @@ class GroupBy:
             else:
                 self.factorize_group_key_in_chunks(group_key)
         else:
+            self._sort = sort
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
-
-        self._sort = sort
 
     @cached_property
     def _group_key_lengths(self):
@@ -267,6 +263,8 @@ class GroupBy:
 
         if self._sort:
             self._result_index = self._result_index.sort_values()
+            self._sort = False  # not necessary to sort now
+
         arg_list = [(arr,) for arr in unique_list]
         self._group_key_pointers = parallel_map(
             self.result_index._engine.get_indexer, arg_list
@@ -468,12 +466,37 @@ class GroupBy:
         func = getattr(numba_funcs, f"group_{func_name}")
         n_values = len(value_list)
 
+        group_keys = (
+            self._group_ikey.chunks if self.key_is_chunked else [self._group_ikey]
+        )
+        group_key_lengths = [len(k) for k in group_keys]
+
         if isinstance(mask, slice):
+            if mask.step is not None and self.key_is_chunked:
+                raise NotImplementedError(
+                    "masking with a stepped slicer and chunked group keys is not supported"
+                )
+
             group_key = self._group_ikey[mask]
             value_list = [x[mask] for x in value_list]
+            if mask.start is None:
+                start = 0
+            elif mask.start < 0:
+                start = len(self) + mask.start
+            else:
+                start = mask.start
+
+            # find first chunk within the mask as we need it below to get the right pointers
+            cum_length = 0
+            for i, x in enumerate(group_key_lengths):
+                cum_length += x
+                if cum_length > start:
+                    break
+            first_chunk_in = i
             mask = None
         else:
             group_key = self._group_ikey
+            first_chunk_in = 0
 
         group_keys = group_key.chunks if self.key_is_chunked else [group_key]
         group_key_lengths = [len(k) for k in group_keys]
@@ -491,14 +514,18 @@ class GroupBy:
             value_chunks = array_split_with_chunk_handling(
                 values, chunk_lengths=group_key_lengths
             )
-
             for i, group_key in enumerate(group_keys):
+                pointer = (
+                    self._group_key_pointers[first_chunk_in + i]
+                    if self.key_is_chunked
+                    else self.result_index
+                )
                 bound_args = signature(func).bind(
                     values=value_chunks[i],
                     group_key=group_key,
                     mask=mask_chunks[i],
                     ngroups=(
-                        len(self._group_key_pointers[i]) + 1
+                        len(pointer) + 1
                         if self.key_is_chunked
                         else self.ngroups + 1  # +1 for null group
                     ),
@@ -539,13 +566,13 @@ class GroupBy:
             counts_one_value = counts[slice_]
             count = np.zeros(len(self._result_index), dtype=np.int64)
 
-            for i, result in enumerate(results_one_value):
+            for j, result in enumerate(results_one_value):
                 result = result[:-1]  # ignore null group
-                pointer = self._group_key_pointers[i]
+                pointer = self._group_key_pointers[first_chunk_in + j]
                 combined[pointer] = numba_funcs.reduce_array_pair(
                     combined[pointer], result, reducer=reducer, counts=count[pointer]
                 )
-                count[pointer] += counts_one_value[i][:-1]  # ignore null group
+                count[pointer] += counts_one_value[j][:-1]  # ignore null group
             individual_results.append((combined, count))
 
         return individual_results
@@ -650,6 +677,9 @@ class GroupBy:
                 result_df = result_df.loc[observed]
                 count_df = count_df.loc[observed]
 
+        if self._sort:  # combined result for chunked keys are already sorted
+            result_df.sort_index(inplace=True)
+
         if margins:
             result_df = self._add_margins(
                 result_df, margins=margins, func_name=effective_func_name
@@ -661,15 +691,10 @@ class GroupBy:
             with np.errstate(invalid="ignore", divide="ignore"):
                 result_df = pd.DataFrame(
                     {
-                        k: mean_from_sum_count(result_df[k], count_df[k])
+                        k: mean_from_sum_count(result_df[k], count_df[k].reindex(result_df.index))
                         for k in result_df
                     }
                 )
-
-        if (
-            self._sort and not self.key_is_chunked
-        ):  # combined result for chunked keys are already sorted
-            result_df.sort_index(inplace=True)
 
         if return_1d:
             result_df = result_df.squeeze(axis=1)
