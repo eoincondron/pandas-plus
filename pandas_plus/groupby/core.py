@@ -336,7 +336,10 @@ class GroupBy:
         bool
             True if any group key contains null values, False otherwise
         """
-        return self.group_ikey.min() < 0
+        if self.key_is_chunked:
+            return self.group_ikey.null_count > 0
+        else:
+            return self.group_ikey.min() < 0
 
     @property
     def _n_threads(self) -> int:
