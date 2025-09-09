@@ -427,6 +427,16 @@ def series_is_numeric(series: pl.Series | pd.Series):
             or "dictionary" in str(dtype)
         )
 
+def is_categorical(a):
+    if isinstance(a, pd.core.base.PandasObject):
+        return isinstance(a.dtype, pd.CategoricalDtype) or "dictionary" in str(a.dtype)
+    elif isinstance(a, pl.Series):
+        return a.dtype == pl.Categorical
+    elif isinstance(a, pa.ChunkedArray):
+        return isinstance(a.chunks[0], pa.DictionaryArray)
+    else:
+        return isinstance(a, pa.DictionaryArray)
+
 
 def _val_to_numpy(
     val: ArrayType1D, as_list: bool = False

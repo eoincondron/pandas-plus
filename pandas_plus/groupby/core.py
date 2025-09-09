@@ -15,6 +15,7 @@ from ..util import (
     ArrayType1D,
     ArrayType2D,
     to_arrow,
+    is_categorical,
     factorize_1d,
     factorize_2d,
     monotonic_factorization,
@@ -181,13 +182,7 @@ class GroupBy:
 
         if len(group_key_list) == 1:
             group_key = group_key_list[0]
-            # Check if the group key is categorical
-            if hasattr(group_key, 'dtype'):
-                is_cat = isinstance(group_key.dtype, pd.CategoricalDtype) or "dictionary" in str(group_key.dtype)
-            elif hasattr(group_key, 'type'):  # PyArrow ChunkedArray
-                is_cat = "dictionary" in str(group_key.type)
-            else:
-                is_cat = False
+            is_cat = is_categorical(group_key)
             if is_cat:
                 sort = False
 
