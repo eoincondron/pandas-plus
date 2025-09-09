@@ -325,15 +325,16 @@ class GroupBy:
             self.group_ikey, self.result_index, self.ngroups
         )
 
-    def _unify_group_key_chunks(self):
+    def _unify_group_key_chunks(self, keep_chunked=False):
         if self.key_is_chunked:
             # Could keep it chunked here and just do the re-pointing
-            self._group_ikey = np.concatenate(
-                [
-                    p[k]
-                    for p, k in zip(self._group_key_pointers, self._group_ikey.chunks)
-                ]
-            )
+            chunks = [
+                p[k] for p, k in zip(self._group_key_pointers, self._group_ikey.chunks)
+            ]
+            if keep_chunked:
+                self._group_ikey = pa.chunked_array(chunks)
+            else:
+                self._group_ikey = np.concatenate(chunks)
 
     @property
     def group_ikey(self):
