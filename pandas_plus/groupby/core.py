@@ -514,10 +514,14 @@ class GroupBy:
         group_key_lengths = [len(k) for k in group_keys]
 
         if mask is not None:
-            if pd.api.types.is_bool_dtype(mask):
+            if self.key_is_chunked:
+                if not pd.api.types.is_bool_dtype(mask):
+                    # Fancy indexing does not work for chunked keys
+                    mask = np.full(False, len(self))
+                    mask[mask] = True
                 mask_chunks = array_split_with_chunk_handling(mask, group_key_lengths)
             else:
-                raise NotImplementedError()
+                mask_chunks = [mask]
         else:
             mask_chunks = [None] * len(group_keys)
 
