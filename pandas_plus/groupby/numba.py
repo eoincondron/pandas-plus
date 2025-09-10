@@ -392,7 +392,7 @@ def _group_by_reduce(
     values: np.ndarray,
     target: np.ndarray,
     reduce_func: Callable,
-    indexer: np.ndarray = None,
+    indexer: Optional[np.ndarray] = None,
     check_in_bounds: bool = True,
 ):
     """
@@ -445,7 +445,7 @@ def _group_by_reduce(
     else:
         n_rows = len(group_key)
         for i in indexer:
-            if check_in_bounds and i > n_rows:
+            if check_in_bounds and i >= n_rows:
                 raise ValueError(
                     f"Indexer {i} is out of bounds for array of length {n_rows}"
                 )
