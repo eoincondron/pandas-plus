@@ -308,9 +308,9 @@ class ScalarFuncs:
         if is_null(next_val):
             return cur_sum, count
         elif count:
-            return cur_sum + next_val ** 2, count + 1
+            return cur_sum + next_val**2, count + 1
         else:
-            return next_val ** 2, count + 1
+            return next_val**2, count + 1
 
     @_scalar_func_decorator
     def max(cur_max, next_val, count):
@@ -828,7 +828,9 @@ def _group_func_wrap(
             chunks = counts
 
         result, count = combine_chunk_results_for_factorized_key(
-            "sum" if counting or "sum" in reduce_func_name else reduce_func_name, chunks, counts
+            "sum" if counting or "sum" in reduce_func_name else reduce_func_name,
+            chunks,
+            counts,
         )
 
     if orig_type.kind in "mM":
@@ -935,7 +937,7 @@ def group_sum_squares(
     n_threads: int = 1,
     return_count: bool = False,
 ):
-    return _group_func_wrap(reduce_func_name = "nansum_squares", **locals())
+    return _group_func_wrap(reduce_func_name="nansum_squares", **locals())
 
 
 def group_mean(
