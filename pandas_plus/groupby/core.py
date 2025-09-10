@@ -187,15 +187,18 @@ class GroupBy:
             is_cat = is_categorical(group_key)
             self._sort = sort and not is_cat
 
-            chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
-            factorize_in_chunks = (
-                factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
-            ) or chunked
-
-            if is_cat or not factorize_in_chunks:
-                self._group_ikey, self._result_index = factorize_1d(group_key)
+            if is_cat:
+                factorize_in_chunks = False
             else:
+                chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
+                factorize_in_chunks = (
+                    factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
+                ) or chunked
+
+            if factorize_in_chunks:
                 self._factorize_group_key_in_chunks(group_key)
+            else:
+                self._group_ikey, self._result_index = factorize_1d(group_key)
         else:
             self._sort = sort
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
