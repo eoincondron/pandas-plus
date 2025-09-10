@@ -46,7 +46,7 @@ jobs:
     
     - name: Upload security reports
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-reports
         path: |
@@ -130,7 +130,7 @@ jobs:
         done
     
     - name: Upload outdated packages report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v
       with:
         name: outdated-packages
         path: outdated-packages.json

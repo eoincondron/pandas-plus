@@ -130,7 +130,7 @@ jobs:
         cat recent-changes.md
     
     - name: Upload changelog
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: recent-changes
         path: recent-changes.md
