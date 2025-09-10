@@ -145,33 +145,31 @@ class TestMaskIndexing:
     @pytest.mark.parametrize(
         "method", ["sum", "mean", "min", "max", "count", "first", "last"]
     )
-    def test_fancy_indexer_masks_not_implemented(self, basic_data, method):
-        """Test that fancy indexer masks raise NotImplementedError (current limitation)."""
+    def test_fancy_indexer_masks_basic(self, basic_data, method):
         data = basic_data
 
         # Create fancy indexer
         indexer = np.array([0, 5, 10, 50, 100])
 
         gb = GroupBy(data["group_keys"])
-
-        # This should raise NotImplementedError for now
-        with pytest.raises(NotImplementedError):
-            getattr(gb, method)(data["float_values"], mask=indexer)
+        result = getattr(gb, method)(data["float_values"], mask=indexer)
+        expected = GroupBy.agg(data["group_keys"][indexer], data["float_values"][indexer], method)
+        assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "count"])
-    def test_fancy_indexer_masks_chunked_data_not_implemented(
+    def test_fancy_indexer_masks_chunked_data(
         self, chunked_data, method
     ):
-        """Test that fancy indexer masks with chunked data raise NotImplementedError."""
         data = chunked_data
 
         # Create fancy indexer
         indexer = np.array([0, 10, 100, 500, 1000])
-
-        # Test with chunked arrays - should raise NotImplementedError
-        gb_chunked = GroupBy(data["group_keys"])
-        with pytest.raises(NotImplementedError):
-            getattr(gb_chunked, method)(data["float_values"], mask=indexer)
+        gb = GroupBy(data["group_keys"])
+        result = getattr(gb, method)(data["float_values"], mask=indexer)
+        expected = GroupBy.agg(
+            pd.Series(data["group_keys"])[indexer], pd.Series(data["float_values"])[indexer], method
+        )
+        assert_pd_equal(result, expected)
 
     # Boolean mask tests (existing functionality verification)
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "count"])
@@ -239,14 +237,12 @@ class TestMaskIndexing:
 
         assert_pd_equal(result, expected, check_dtype=False)
 
-        # Test that fancy indexer raises NotImplementedError
-        fancy_mask = np.array([0, 50, 100, 200, 400, 600, 800, 999])
-        with pytest.raises(NotImplementedError):
-            gb.mean(df, mask=fancy_mask)
+        fancy_mask = bool_mask.nonzero()[0]
+        result = gb.mean(df, mask=fancy_mask)
+        assert_pd_equal(result, expected, check_dtype=False)
 
     # Edge cases and error conditions
-    def test_out_of_bounds_fancy_indexer_not_implemented(self, basic_data):
-        """Test that fancy indexers currently raise NotImplementedError."""
+    def test_out_of_bounds_fancy_indexer_raises(self, basic_data):
         data = basic_data
         gb = GroupBy(data["group_keys"])
 
@@ -254,12 +250,11 @@ class TestMaskIndexing:
         out_of_bounds_indexers = [
             np.array([0, 5, data["size"]]),  # One element out of bounds
             np.array([data["size"] + 100]),  # Far out of bounds
-            np.array([-1, 0, 5]),  # Negative index
             np.array([data["size"] * 2]),  # Way out of bounds
         ]
 
         for indexer in out_of_bounds_indexers:
-            with pytest.raises(NotImplementedError):
+            with pytest.raises(ValueError):
                 gb.sum(data["float_values"], mask=indexer)
 
     def test_empty_masks(self, basic_data):
@@ -267,10 +262,8 @@ class TestMaskIndexing:
         data = basic_data
         gb = GroupBy(data["group_keys"])
 
-        # Empty fancy indexer - should raise NotImplementedError
         empty_indexer = np.array([], dtype=np.int64)
-        with pytest.raises(NotImplementedError):
-            gb.sum(data["float_values"], mask=empty_indexer)
+        gb.sum(data["float_values"], mask=empty_indexer)
 
         # Empty slice
         empty_slice = slice(500, 500)  # Empty range
@@ -287,10 +280,8 @@ class TestMaskIndexing:
         data = basic_data
         gb = GroupBy(data["group_keys"])
 
-        # Single element fancy indexer - should raise NotImplementedError
         single_indexer = np.array([500])
-        with pytest.raises(NotImplementedError):
-            gb.sum(data["float_values"], mask=single_indexer)
+        gb.sum(data["float_values"], mask=single_indexer)
 
         # Single element slice works
         single_slice = slice(500, 501)
@@ -299,7 +290,6 @@ class TestMaskIndexing:
         assert len(result) <= 1
         if len(result) == 1:
             # Value should match the selected element
-            expected_key = data["group_keys"][500]
             expected_value = data["float_values"][500]
             assert result.iloc[0] == expected_value
 
@@ -316,8 +306,7 @@ class TestMaskIndexing:
         ]
 
         for indexer in fancy_indexers:
-            with pytest.raises(NotImplementedError):
-                gb.sum(data["float_values"], mask=indexer)
+            gb.sum(data["float_values"], mask=indexer)
 
     # Performance and memory tests
     def test_large_slice_performance(self, chunked_data):
@@ -345,8 +334,7 @@ class TestMaskIndexing:
             data["size"], data["size"] // 10, replace=False
         )
 
-        with pytest.raises(NotImplementedError):
-            gb.sum(data["float_values"], mask=large_indexer)
+        gb.sum(data["float_values"], mask=large_indexer)
 
     # Mixed data type tests
     def test_masks_with_mixed_value_types(self, basic_data):
