@@ -248,7 +248,7 @@ class GroupBy:
         if use_monotonic_piece:
             group_key = group_key[cutoff:]
 
-        group_key_list = _val_to_numpy(group_key, as_list=True)[0]
+        group_key_list = _val_to_numpy(group_key, as_list=True)
         if len(group_key_list) == 1:
             group_key_chunks = np.array_split(
                 group_key_list[0], self._n_threads_for_key_factorization
