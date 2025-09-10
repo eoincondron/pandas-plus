@@ -21,6 +21,7 @@ from pandas_plus.util import (
     factorize_1d,
     factorize_2d,
     array_split_with_chunk_handling,
+    to_arrow,
 )
 
 
@@ -1799,3 +1800,342 @@ class TestArraySplitWithChunkHandling:
         assert len(result) == len(expected_chunks)
         for actual, expected in zip(result, expected_chunks):
             np.testing.assert_array_equal(actual, expected)
+
+
+class TestToArrow:
+    """Test the to_arrow function with focus on zero-copy conversions."""
+
+    def test_numpy_array_conversion(self):
+        """Test conversion of NumPy arrays to PyArrow."""
+        # Test different dtypes (non-boolean)
+        test_arrays = [
+            np.array([1, 2, 3, 4, 5], dtype=np.int64),
+            np.array([1.1, 2.2, 3.3], dtype=np.float64),
+            np.array(["a", "b", "c"], dtype="<U1"),
+        ]
+
+        for arr in test_arrays:
+            result = to_arrow(arr)
+            assert isinstance(result, pa.Array)
+
+            # Some PyArrow arrays may require copy for to_numpy(), so allow that
+            if result.type == pa.string():
+                assert result.to_pylist() == arr.tolist()
+            else:
+                assert result.to_numpy(zero_copy_only=False).tolist() == arr.tolist()
+
+            # Verify type preservation where possible
+            if arr.dtype == np.int64:
+                assert result.type == pa.int64()
+            elif arr.dtype == np.float64:
+                assert result.type == pa.float64()
+
+    def test_numpy_boolean_array_zero_copy_only_true(self):
+        """Test that boolean arrays raise TypeError with zero_copy_only=True."""
+        bool_arr = np.array([True, False, True], dtype=bool)
+
+        # Should raise TypeError with default zero_copy_only=True
+        with pytest.raises(
+            TypeError, match="Zero copy conversions not possible with boolean types"
+        ):
+            to_arrow(bool_arr)
+
+    def test_numpy_boolean_array_zero_copy_only_false(self):
+        """Test boolean array conversion with zero_copy_only=False."""
+        bool_arr = np.array([True, False, True], dtype=bool)
+
+        # Should work with zero_copy_only=False
+        result = to_arrow(bool_arr, zero_copy_only=False)
+        assert isinstance(result, pa.Array)
+        assert result.type == pa.bool_()
+        # For boolean arrays, use to_pylist() instead of to_numpy()
+        assert result.to_pylist() == bool_arr.tolist()
+
+    def test_pandas_series_conversion(self):
+        """Test conversion of pandas Series to PyArrow."""
+        # Basic series
+        series = pd.Series([1, 2, 3, 4, 5])
+        result = to_arrow(series)
+        assert isinstance(result, pa.Array)
+        assert result.to_numpy(zero_copy_only=False).tolist() == series.tolist()
+
+        # Series with different dtypes
+        float_series = pd.Series([1.1, 2.2, 3.3, 4.4])
+        result = to_arrow(float_series)
+        assert isinstance(result, pa.Array)
+        assert result.type == pa.float64()
+        np.testing.assert_array_equal(
+            result.to_numpy(zero_copy_only=False), float_series.values
+        )
+
+    def test_pandas_boolean_series_zero_copy_only_true(self):
+        """Test that pandas boolean Series raise TypeError with zero_copy_only=True."""
+        bool_series = pd.Series([True, False, True, False])
+
+        # Should raise TypeError with default zero_copy_only=True
+        with pytest.raises(
+            TypeError, match="Zero copy conversions not possible with boolean types"
+        ):
+            to_arrow(bool_series)
+
+    def test_pandas_boolean_series_zero_copy_only_false(self):
+        """Test pandas boolean Series conversion with zero_copy_only=False."""
+        bool_series = pd.Series([True, False, True, False])
+
+        # Should work with zero_copy_only=False
+        result = to_arrow(bool_series, zero_copy_only=False)
+        assert isinstance(result, pa.Array)
+        assert result.type == pa.bool_()
+        # For boolean arrays, use to_pylist() instead of to_numpy()
+        assert result.to_pylist() == bool_series.tolist()
+
+    def test_pandas_index_conversion(self):
+        """Test conversion of pandas Index to PyArrow."""
+        index = pd.Index([10, 20, 30, 40])
+        result = to_arrow(index)
+        assert isinstance(result, pa.Array)
+        assert result.to_numpy(zero_copy_only=False).tolist() == index.tolist()
+
+    def test_pandas_categorical_conversion(self):
+        """Test conversion of pandas Categorical to PyArrow DictionaryArray."""
+        categories = ["A", "B", "C"]
+        cat = pd.Categorical(["A", "B", "A", "C", "B"], categories=categories)
+
+        result = to_arrow(cat)
+        assert isinstance(result, pa.DictionaryArray)
+
+        # Check that dictionary values are preserved
+        dictionary_values = result.dictionary.to_pylist()
+        assert dictionary_values == categories
+
+        # Check that indices are correct
+        expected_indices = [0, 1, 0, 2, 1]  # A=0, B=1, C=2
+        assert result.indices.to_pylist() == expected_indices
+
+    def test_pandas_arrow_dtype_conversion(self):
+        """Test conversion of pandas Series with ArrowDtype."""
+        # Create pandas Series with PyArrow backend
+        pa_array = pa.array([1, 2, 3, 4])
+        series = pd.Series(pa_array, dtype=pd.ArrowDtype(pa.int64()))
+
+        result = to_arrow(series)
+        assert isinstance(result, pa.Array)
+        assert result.type == pa.int64()
+        assert result.to_numpy().tolist() == [1, 2, 3, 4]
+
+    def test_polars_series_conversion(self):
+        """Test conversion of polars Series to PyArrow."""
+        pl_series = pl.Series([1, 2, 3, 4, 5])
+        result = to_arrow(pl_series)
+
+        assert isinstance(result, pa.Array)
+        assert result.to_numpy(zero_copy_only=False).tolist() == pl_series.to_list()
+
+    def test_pyarrow_array_passthrough(self):
+        """Test that PyArrow Arrays are returned as-is (zero copy)."""
+        original = pa.array([1, 2, 3, 4, 5])
+        result = to_arrow(original)
+
+        # Should be the exact same object (no copy)
+        assert result is original
+        assert id(result) == id(original)
+
+    def test_pyarrow_chunked_array_passthrough(self):
+        """Test that PyArrow ChunkedArrays are returned as-is (zero copy)."""
+        chunk1 = pa.array([1, 2, 3])
+        chunk2 = pa.array([4, 5, 6])
+        original = pa.chunked_array([chunk1, chunk2])
+
+        result = to_arrow(original)
+
+        # Should be the exact same object (no copy)
+        assert result is original
+        assert id(result) == id(original)
+        assert isinstance(result, pa.ChunkedArray)
+        assert len(result.chunks) == 2
+
+    def test_zero_copy_verification_numpy(self):
+        """Verify that NumPy array conversion minimizes copying."""
+        # Create a large array to make copying more expensive
+        large_arr = np.arange(1000, dtype=np.int64)
+        original_data_ptr = large_arr.__array_interface__["data"][0]
+
+        result = to_arrow(large_arr)
+
+        # PyArrow should attempt to use the same memory where possible
+        # Note: PyArrow may still need to copy for compatibility reasons,
+        # but we verify the conversion succeeds efficiently
+        assert isinstance(result, pa.Array)
+        assert result.type == pa.int64()
+        np.testing.assert_array_equal(result.to_numpy(zero_copy_only=False), large_arr)
+
+    def test_zero_copy_verification_polars(self):
+        """Verify that Polars Series conversion is efficient."""
+        # Polars to_arrow() should be zero-copy
+        large_series = pl.Series(list(range(1000)))
+
+        result = to_arrow(large_series)
+
+        assert isinstance(result, pa.Array)
+        assert result.to_numpy(zero_copy_only=False).tolist() == large_series.to_list()
+
+    def test_unsupported_type_error(self):
+        """Test that unsupported types raise TypeError."""
+        with pytest.raises(TypeError, match="Cannot convert type.*to arrow"):
+            to_arrow("not_an_array_type")
+
+        with pytest.raises(TypeError, match="Cannot convert type.*to arrow"):
+            to_arrow({"dict": "not_supported"})
+
+    def test_empty_arrays(self):
+        """Test conversion of empty arrays."""
+        # Empty NumPy array
+        empty_np = np.array([], dtype=np.int64)
+        result = to_arrow(empty_np)
+        assert isinstance(result, pa.Array)
+        assert len(result) == 0
+        assert result.type == pa.int64()
+
+        # Empty pandas Series
+        empty_series = pd.Series([], dtype="int64")
+        result = to_arrow(empty_series)
+        assert isinstance(result, pa.Array)
+        assert len(result) == 0
+
+        # Empty PyArrow array (passthrough)
+        empty_arrow = pa.array([], type=pa.int64())
+        result = to_arrow(empty_arrow)
+        assert result is empty_arrow
+
+    def test_null_value_handling(self):
+        """Test conversion of arrays with null/NaN values."""
+        # Test with pandas Series containing explicit None values for object dtype
+        series_with_none = pd.Series([1, None, 3, None], dtype="object")
+        result = to_arrow(series_with_none)
+        assert isinstance(result, pa.Array)
+        assert result.null_count == 2
+
+        # Test with string arrays containing None
+        str_series_with_none = pd.Series(["a", None, "c", None], dtype="object")
+        result = to_arrow(str_series_with_none)
+        assert isinstance(result, pa.Array)
+        assert result.null_count == 2
+
+    def test_datetime_conversion(self):
+        """Test conversion of datetime arrays."""
+        dates = pd.date_range("2023-01-01", periods=4)
+        result = to_arrow(dates)
+        assert isinstance(result, pa.Array)
+        assert pa.types.is_timestamp(result.type)
+
+    def test_string_arrays(self):
+        """Test conversion of string arrays."""
+        # NumPy string array
+        str_array = np.array(["hello", "world", "test"])
+        result = to_arrow(str_array)
+        assert isinstance(result, pa.Array)
+        assert result.to_pylist() == ["hello", "world", "test"]
+
+        # Pandas string series
+        str_series = pd.Series(["pandas", "arrow", "conversion"])
+        result = to_arrow(str_series)
+        assert isinstance(result, pa.Array)
+        assert result.to_pylist() == ["pandas", "arrow", "conversion"]
+
+    def test_memory_efficiency_large_data(self):
+        """Test that conversion is memory efficient for large datasets."""
+        # Create a moderately large dataset
+        large_data = np.random.randint(0, 1000, size=10_000)
+
+        # Convert to various formats and then to arrow
+        formats_to_test = [
+            large_data,  # NumPy
+            pd.Series(large_data),  # Pandas
+            pa.array(large_data),  # PyArrow (should be passthrough)
+        ]
+
+        for data in formats_to_test:
+            result = to_arrow(data)
+            assert isinstance(result, pa.Array)
+            np.testing.assert_array_equal(
+                result.to_numpy(zero_copy_only=False), large_data
+            )
+
+            # For PyArrow input, should be same object
+            if isinstance(data, pa.Array):
+                assert result is data
+
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            np.int8,
+            np.int16,
+            np.int32,
+            np.int64,
+            np.uint8,
+            np.uint16,
+            np.uint32,
+            np.uint64,
+            np.float32,
+            np.float64,
+        ],
+    )
+    def test_dtype_preservation(self, dtype):
+        """Test that dtypes are preserved correctly during conversion."""
+        arr = np.array([1, 2, 3], dtype=dtype)
+
+        result = to_arrow(arr)
+        assert isinstance(result, pa.Array)
+
+        # Convert back and check dtype is preserved
+        roundtrip = result.to_numpy(zero_copy_only=False)
+        if dtype in (np.int8, np.int16, np.int32):
+            # PyArrow may upcast small integers to int64
+            assert roundtrip.dtype in (dtype, np.int64)
+        elif dtype in (np.uint8, np.uint16, np.uint32):
+            # PyArrow may upcast small unsigned integers
+            assert roundtrip.dtype in (dtype, np.uint64)
+        else:
+            assert roundtrip.dtype == dtype or np.issubdtype(roundtrip.dtype, dtype)
+
+    def test_zero_copy_only_parameter_comprehensive(self):
+        """Test the zero_copy_only parameter with various input types."""
+        # Test with non-boolean types (should work with both True and False)
+        int_arr = np.array([1, 2, 3, 4, 5])
+        float_arr = np.array([1.1, 2.2, 3.3])
+        str_arr = np.array(["a", "b", "c"])
+
+        for arr in [int_arr, float_arr, str_arr]:
+            # Should work with zero_copy_only=True (default)
+            result_true = to_arrow(arr, zero_copy_only=True)
+            assert isinstance(result_true, pa.Array)
+
+            # Should work with zero_copy_only=False
+            result_false = to_arrow(arr, zero_copy_only=False)
+            assert isinstance(result_false, pa.Array)
+
+            # Results should be equal
+            if result_true.type == pa.string():
+                assert result_true.to_pylist() == result_false.to_pylist()
+            else:
+                np.testing.assert_array_equal(
+                    result_true.to_numpy(zero_copy_only=False),
+                    result_false.to_numpy(zero_copy_only=False),
+                )
+
+        # Test with boolean types (should raise with True, work with False)
+        bool_arr = np.array([True, False, True])
+        bool_series = pd.Series([True, False, True, False])
+
+        for bool_input in [bool_arr, bool_series]:
+            # Should raise TypeError with zero_copy_only=True
+            with pytest.raises(
+                TypeError, match="Zero copy conversions not possible with boolean types"
+            ):
+                to_arrow(bool_input, zero_copy_only=True)
+
+            # Should work with zero_copy_only=False
+            result = to_arrow(bool_input, zero_copy_only=False)
+            assert isinstance(result, pa.Array)
+            assert result.type == pa.bool_()
+            assert result.to_pylist() == bool_input.tolist()

@@ -408,12 +408,92 @@ def get_array_name(
     return name
 
 
-def to_arrow(a: ArrayType1D) -> pa.Array | pa.ChunkedArray:
+def to_arrow(a: ArrayType1D, zero_copy_only: bool = True) -> pa.Array | pa.ChunkedArray:
+    """
+    Convert various array types to PyArrow Array or ChunkedArray with minimal copying.
+
+    This function provides a unified interface for converting different array-like objects
+    (NumPy arrays, pandas Series/Index/Categorical, polars Series, and PyArrow structures)
+    to PyArrow format. It aims to minimize memory copying by leveraging zero-copy
+    conversions where possible.
+
+    Parameters
+    ----------
+    a : ArrayType1D
+        Input array to convert. Can be one of:
+        - numpy.ndarray
+        - pandas.Series, pandas.Index, pandas.Categorical
+        - polars.Series
+        - pyarrow.Array, pyarrow.ChunkedArray
+
+    Returns
+    -------
+    pa.Array or pa.ChunkedArray
+        PyArrow representation of the input array. Returns pa.ChunkedArray for
+        inputs that are already chunked, pa.Array otherwise.
+
+    Raises
+    ------
+    TypeError
+        If the input type is not supported for conversion to PyArrow format.
+
+    Notes
+    -----
+    Zero-copy conversions are attempted where possible:
+    - PyArrow Array/ChunkedArray: Returns input directly (no copy)
+    - Polars Series: Uses polars' built-in to_arrow() method (zero-copy)
+    - Pandas with ArrowDtype: Uses PyArrow's from_pandas() (minimal copy)
+    - NumPy arrays: Uses PyArrow's array() constructor with zero_copy_only=False
+
+    For pandas Categorical data, the function converts to a PyArrow DictionaryArray
+    which preserves the categorical structure while enabling efficient operations.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> import pandas as pd
+    >>> import pyarrow as pa
+    >>> from pandas_plus.util import to_arrow
+
+    NumPy array conversion:
+    >>> arr = np.array([1, 2, 3, 4, 5])
+    >>> arrow_arr = to_arrow(arr)
+    >>> type(arrow_arr)
+    <class 'pyarrow.lib.Int64Array'>
+
+    Pandas Series conversion:
+    >>> series = pd.Series([1.1, 2.2, 3.3])
+    >>> arrow_arr = to_arrow(series)
+    >>> type(arrow_arr)
+    <class 'pyarrow.lib.DoubleArray'>
+
+    Categorical conversion:
+    >>> cat = pd.Categorical(['a', 'b', 'a', 'c'])
+    >>> arrow_arr = to_arrow(cat)
+    >>> type(arrow_arr)
+    <class 'pyarrow.lib.DictionaryArray'>
+
+    PyArrow pass-through (no copy):
+    >>> pa_arr = pa.array([1, 2, 3])
+    >>> result = to_arrow(pa_arr)
+    >>> result is pa_arr  # Same object, no copy
+    True
+    """
     if isinstance(a, pl.Series):
         return a.to_arrow()
     elif isinstance(a, pd.core.base.PandasObject):
-        return pa.Array.from_pandas(a)  # type: ignore
+        if isinstance(a.dtype, pd.ArrowDtype):
+            return pa.Array.from_pandas(a)  # type: ignore
+        elif isinstance(a.dtype, pd.CategoricalDtype):
+            a = pd.Series(a)
+            return pa.DictionaryArray.from_arrays(a.cat.codes.values, a.cat.categories)
+        else:
+            if zero_copy_only and pd.api.types.is_bool_dtype(a):
+                raise TypeError("Zero copy conversions not possible with boolean types")
+            return pa.array(np.asarray(a))
     elif isinstance(a, np.ndarray):
+        if zero_copy_only and a.dtype == bool:
+            raise TypeError("Zero copy conversions not possible with boolean types")
         return pa.array(a)
     elif isinstance(a, (pa.Array, pa.ChunkedArray)):
         return a  # ChunkedArray is already a PyArrow structure
@@ -446,7 +526,7 @@ def is_categorical(a):
 
 
 def array_split_with_chunk_handling(
-    arr: ArrayType1D, chunk_lengths: List[int]
+    a: ArrayType1D, chunk_lengths: List[int]
 ) -> List[np.ndarray]:
     """
     Split an array into chunks with optimized handling for PyArrow ChunkedArrays.
