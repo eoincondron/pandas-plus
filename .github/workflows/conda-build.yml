@@ -47,14 +47,22 @@ jobs:
     - name: Build conda package
       shell: bash -l {0}
       run: |
-        conda build conda-recipe/ --output-folder dist/conda --python ${{ matrix.python-version }}
+        conda-build conda-recipe/ --output-folder dist/conda --python ${{ matrix.python-version }}
 
     - name: Test conda package
       shell: bash -l {0}
       run: |
-        # Install the built package
-        conda install --use-local pandas-plus -y
+        # Find the built package file
+        PACKAGE_FILE=$(find dist/conda -name "pandas-plus-*.conda" -o -name "pandas-plus-*.tar.bz2" | head -1)
+        echo "Found package: $PACKAGE_FILE"
+
+        # Create test environment from environment.yml
+        conda env create -f environment.yml -n test-env
+        conda activate test-env
         
+        # Install the local package without dependencies (since we already have them from environment.yml)
+        conda install --no-deps "$PACKAGE_FILE" -y
+
         # Run basic import test
         python -c "
         from pandas_plus.groupby import GroupBy
