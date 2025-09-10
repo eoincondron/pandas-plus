@@ -9,17 +9,16 @@ A high-performance extension package for pandas that provides fast groupby opera
 
 ## Faster GroupBy Operations
 Optimized group-by operations, particularly with categorical data (uses the existing factorization) and with multi-threading on large datasets across both row and columns axes
-
 ![alt text](docs/images/gb-comparison.png)
 
 ## Inline Filtering of Groupby Operations
- Inline filtering such that Series/DataFrames do not have to be filtered before group-by operations. Pass a Boolean mask, slice or fancy-indexer to the group-by method call:
+ Inline filtering such that Series/DataFrames do not have to be filtered before group-by operations. This saves time and memory directly, and also promotes re-use of `GroupBy` objects which boosts performance dramatically (the majority of run-time in most group-by ops is in the factorization step)
+
+ Pass a Boolean mask, slice or fancy-indexer to the group-by method call:
 ![alt text](docs/images/mask-demo.png)
-![alt text](docs/images/slice-fancy-demo.png)
 
 - **Flexible Input Types**: Support for NumPy arrays, pandas Series/DataFrames backed by NumPy or Arrow, and Polars Series/DataFrames. Here are some examples which are not exhaustive
 
-<!-- ![alt text](docs/images/np-arr-agg.png) -->
 
 ```python
 from pandas_plus.groupby import GroupBy
@@ -28,7 +27,7 @@ arr = np.random.randint(0, 10, 10000)
 keys = arr % 3 + 2
 
 # Create GroupBy object
-gb = core.GroupBy(keys)
+gb = GroupBy(keys)
 
 # Perform aggregations
 gb.agg(arr, agg_func=["sum", "mean", "count", "min", "max"])
@@ -226,17 +225,17 @@ print(first_two)
 
 ### Pivot Tables
 
-Create pivot tables using the pivot_table function:
+Create pivot tables using the crosstab function:
 
 ```python
-from pandas_plus.groupby.core import pivot_table
+from pandas_plus.groupby import crosstab
 
 # Sample data
 index_keys = ['Jan', 'Feb', 'Jan', 'Feb']
 column_keys = ['A', 'A', 'B', 'B']  
 values = [10, 20, 30, 40]
 
-result = pivot_table(
+result = crosstab(
     index=index_keys,
     columns=column_keys,
     values=values,
