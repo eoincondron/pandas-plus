@@ -48,8 +48,9 @@ def groupby_aggregation(
 
         if include_margins:
             param_docs += """
-        margins : bool, default False
-            Add margins (subtotals) to result"""
+        margins : bool or list of int, default False
+            Add margins (subtotals) to result. If list of integers,
+            include margin rows for the specified levels only."""
 
         if include_numeric_only:
             param_docs = (
