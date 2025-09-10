@@ -1,4 +1,5 @@
-import pandas as pd 
+import pandas as pd
+
 
 def assert_pd_equal(left, right, dtype_kind_only: bool = False, **kwargs):
     if isinstance(left, pd.Series):
