@@ -46,7 +46,7 @@ test:
   source_files:
     - tests/
   commands:
-    - python -m pytest tests/ -v --tb=short -n 4
+    - python -m pytest tests/ -v --tb=short
 
 about:
   home: https://github.com/eoincondron/pandas-plus
