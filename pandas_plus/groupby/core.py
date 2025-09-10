@@ -190,7 +190,14 @@ class GroupBy:
             if is_cat:
                 factorize_in_chunks = False
             else:
-                chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
+                try:
+                    to_arrow(group_key)
+                    chunked = isinstance(to_arrow(group_key), pa.ChunkedArray)
+                except TypeError:
+                    chunked = False
+
+                # TODO: estimate number of uniques based on initial slice of array 
+                # and do not factorize in chunk when number of uniques is estimated to be large
                 factorize_in_chunks = (
                     factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
                 ) or chunked
