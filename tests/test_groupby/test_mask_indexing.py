@@ -153,13 +153,13 @@ class TestMaskIndexing:
 
         gb = GroupBy(data["group_keys"])
         result = getattr(gb, method)(data["float_values"], mask=indexer)
-        expected = GroupBy.agg(data["group_keys"][indexer], data["float_values"][indexer], method)
+        expected = GroupBy.agg(
+            data["group_keys"][indexer], data["float_values"][indexer], method
+        )
         assert_pd_equal(result, expected)
 
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max", "count"])
-    def test_fancy_indexer_masks_chunked_data(
-        self, chunked_data, method
-    ):
+    def test_fancy_indexer_masks_chunked_data(self, chunked_data, method):
         data = chunked_data
 
         # Create fancy indexer
@@ -167,7 +167,9 @@ class TestMaskIndexing:
         gb = GroupBy(data["group_keys"])
         result = getattr(gb, method)(data["float_values"], mask=indexer)
         expected = GroupBy.agg(
-            pd.Series(data["group_keys"])[indexer], pd.Series(data["float_values"])[indexer], method
+            pd.Series(data["group_keys"])[indexer],
+            pd.Series(data["float_values"])[indexer],
+            method,
         )
         assert_pd_equal(result, expected)
 
