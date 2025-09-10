@@ -602,8 +602,9 @@ class GroupBy:
             Boolean mask to filter values
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group
-        margins : bool, default False
-            If True, include a total row in the result
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only.
         observed_only : bool, default True
             If True, only include groups that are observed in the data
 
@@ -758,8 +759,9 @@ class GroupBy:
             Boolean mask to filter values before counting.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
 
         Returns
         -------
@@ -790,8 +792,9 @@ class GroupBy:
             Boolean mask to filter values before summing.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
         Returns
@@ -827,8 +830,9 @@ class GroupBy:
             Boolean mask to filter values before calculating mean.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
         Returns
@@ -865,8 +869,9 @@ class GroupBy:
             Boolean mask to filter values before finding minimum.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
 
@@ -904,8 +909,9 @@ class GroupBy:
             Boolean mask to filter values before finding maximum.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
 
@@ -994,8 +1000,9 @@ class GroupBy:
             Boolean mask to filter values before calculating variance.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         ddof : int, default 0
             Delta degrees of freedom.
         observed_only : bool, default True
@@ -1035,8 +1042,9 @@ class GroupBy:
             Boolean mask to filter values before calculating standard deviation.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         ddof : int, default 0
             Delta degrees of freedom.
         observed_only : bool, default True
@@ -1069,8 +1077,9 @@ class GroupBy:
             Boolean mask to filter values before getting the first value.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
 
@@ -1108,8 +1117,9 @@ class GroupBy:
             Boolean mask to filter values before getting the last value.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
 
@@ -1150,8 +1160,9 @@ class GroupBy:
             Boolean mask to filter values before aggregation.
         transform : bool, default False
             If True, return values with same shape as input rather than one value per group.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
         observed_only : bool, default True
             If True, only include groups that are observed in the data.
 
@@ -1224,8 +1235,9 @@ class GroupBy:
             Boolean mask to filter values before calculating ratio.
         agg_func : str, default "sum"
             Aggregation function to apply before ratio calculation.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
 
         Returns
         -------
@@ -1270,8 +1282,9 @@ class GroupBy:
             Optional global boolean mask to apply to all calculations.
         agg_func : str, default "sum"
             Aggregation function to apply before ratio calculation.
-        margins : bool, default False
-            If True, include a total row in the result.
+        margins : bool or list of int, default False
+            If True, include a total row in the result. If list of integers,
+            include margin rows for the specified levels only..
 
         Returns
         -------
