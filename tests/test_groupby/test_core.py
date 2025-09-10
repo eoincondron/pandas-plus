@@ -214,7 +214,7 @@ class TestGroupBy:
         values = pd.Series([1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5])
 
         gb = GroupBy(key)
-        assert gb._n_threads == 1  # Small data should use single thread
+        assert gb._max_threads_for_numba == 1  # Small data should use single thread
 
         # Test with single value, multiple agg functions
         result = gb.agg(values, agg_func=["sum", "mean", "min", "max"])
@@ -236,7 +236,7 @@ class TestGroupBy:
         values = pd.Series(np.random.rand(size))
 
         gb = GroupBy(key)
-        assert gb._n_threads > 1  # Large data should use multiple threads
+        assert gb._max_threads_for_numba > 1  # Large data should use multiple threads
 
         # Test with single value, multiple agg functions
         result = gb.agg(values, agg_func=["sum", "mean"])
@@ -330,7 +330,7 @@ class TestGroupBy:
             assert len(gb._group_key_pointers) == 4
         else:
             assert gb.group_ikey.shape[0] == 10_000_000  # Check group indices length
-        assert gb._n_threads > 1
+        assert gb._max_threads_for_numba > 1
 
         if use_mask:
             mask = key != 1

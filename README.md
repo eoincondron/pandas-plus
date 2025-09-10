@@ -8,7 +8,8 @@ A high-performance extension package for pandas that provides fast groupby opera
 
 
 ## Faster GroupBy Operations
-Optimized group-by operations, particularly with categorical data (uses the existing factorization) and with multi-threading on large datasets across both row and columns axes
+Optimized group-by operations, particularly with categorical data (uses the existing factorization) and with multi-threading on large datasets across both row and columns axes. 
+***NB**: the benchmarking below is after all `numba` just-in-time compilations have been completed.*
 ![alt text](docs/images/gb-comparison.png)
 
 ## Inline Filtering of Groupby Operations

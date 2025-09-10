@@ -196,7 +196,7 @@ class GroupBy:
                 except TypeError:
                     chunked = False
 
-                # TODO: estimate number of uniques based on initial slice of array 
+                # TODO: estimate number of uniques based on initial slice of array
                 # and do not factorize in chunk when number of uniques is estimated to be large
                 factorize_in_chunks = (
                     factorize_large_inputs_in_chunks and len(group_key) >= 1_000_000
@@ -375,11 +375,11 @@ class GroupBy:
             return self.group_ikey.min() < 0
 
     @property
-    def _n_threads(self) -> int:
-        n_cpus = multiprocessing.cpu_count()
-        n_threads = min((n_cpus - 1) * 2, len(self) // 1_000_000, 4)
-        n_threads = max(n_threads, 1)
-        return n_threads
+    def _max_threads_for_numba(self) -> int:
+        """
+        Between 1 and 4 threads depending on length of inputs
+        """
+        return min(4, 1 + len(self) // 1_000_000)
 
     def _preprocess_arguments(
         self, values: ArrayCollection, mask: Union[ArrayType1D, None]
@@ -452,8 +452,7 @@ class GroupBy:
             **kwargs,
         )
         if "n_threads" in sig.parameters:
-            threads_for_row_axis = max(1, self._n_threads // n_values)
-            shared_kwargs["n_threads"] = threads_for_row_axis
+            shared_kwargs["n_threads"] = self._max_threads_for_numba
 
         bound_args = [
             signature(func).bind(values=x, **shared_kwargs) for x in value_list
@@ -527,6 +526,14 @@ class GroupBy:
             mask_chunks = [None] * len(group_keys)
 
         arg_list = []
+
+        n_cpus = multiprocessing.cpu_count()
+        max_threads = 2 * n_cpus - 1
+        total_n_numba_function_calls = len(value_list) * len(group_keys)
+
+        threads_for_one_call = max(1, max_threads // total_n_numba_function_calls)
+        threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
+
         for values in value_list:
             value_chunks = array_split_with_chunk_handling(
                 values, chunk_lengths=group_key_lengths
@@ -546,11 +553,7 @@ class GroupBy:
                         if self.key_is_chunked
                         else self.ngroups + 1  # +1 for null group
                     ),
-                    n_threads=(
-                        1
-                        if self.key_is_chunked
-                        else min(4, len(value_chunks[i]) // 1_000_000 + 1)
-                    ),
+                    n_threads=threads_for_one_call,
                     return_count=True,
                 )
                 arg_list.append(bound_args.args)
@@ -1217,11 +1220,7 @@ class GroupBy:
                 .args
                 for f, v in zip(agg_func, value_list)
             ]
-            if self._n_threads > 1:
-                results = parallel_map(self.agg, args_list)
-            else:
-                results = [self.agg(*args) for args in args_list]
-
+            results = parallel_map(self.agg, args_list)
             return pd.DataFrame(dict(zip(value_names, results)), copy=False)
         else:
             raise TypeError(
