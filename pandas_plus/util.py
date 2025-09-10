@@ -568,21 +568,23 @@ def array_split_with_chunk_handling(
     >>> [chunk.tolist() for chunk in chunks]
     [[1, 2], [3, 4, 5], [6]]
     """
-    if sum(chunk_lengths) != len(arr):
+    if sum(chunk_lengths) != len(a):
         raise ValueError(
-            f"Sum of chunk_lengths ({sum(chunk_lengths)}) must equal array length ({len(arr)}). "
+            f"Sum of chunk_lengths ({sum(chunk_lengths)}) must equal array length ({len(a)}). "
             f"Got chunk_lengths: {chunk_lengths}"
         )
 
     offsets = np.cumsum(chunk_lengths)[:-1]
-    arrow = to_arrow(arr)
-
-    if isinstance(arrow, pa.ChunkedArray):
-        chunks = arrow.chunks
-        if len(chunks) == len(chunk_lengths):
-            if all(len(c) == k for c, k in zip(chunks, chunk_lengths)):
-                return [chunk.to_numpy() for chunk in chunks]
-
+    arr_list = _val_to_numpy(a, as_list=True)
+    if len(arr_list) > 1:
+        if len(arr_list) == len(chunk_lengths) and all(
+            len(c) == k for c, k in zip(arr_list, chunk_lengths)
+        ):
+            return arr_list
+        else:
+            arr = np.concatenate(arr_list)
+    else:
+        arr = arr_list[0]
     return np.array_split(arr, offsets)
 
 
