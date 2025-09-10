@@ -74,7 +74,7 @@ def _validate_input_lengths_and_indexes(
     arr_list: List[ArrayType1D],
 ) -> Optional[pd.Index]:
     """
-    Validate that all values have the same length abnd that any pandas indexes are compatible.
+    Validate that all values have the same length and that any pandas indexes are compatible.
 
     Parameters
     ----------
@@ -195,7 +195,7 @@ class GroupBy:
             if is_cat or not factorize_in_chunks:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
             else:
-                self.factorize_group_key_in_chunks(group_key)
+                self._factorize_group_key_in_chunks(group_key)
         else:
             self._sort = sort
             self._group_ikey, self._result_index = factorize_2d(*group_key_list)
@@ -219,7 +219,7 @@ class GroupBy:
     def __len__(self):
         return sum(self._group_key_lengths)
 
-    def factorize_group_key_in_chunks(self, group_key: ArrayType1D):
+    def _factorize_group_key_in_chunks(self, group_key: ArrayType1D):
         """
         Factorize a large group key array in chunks for better performance.
         This method splits the group key into smaller chunks, factorizes each chunk
