@@ -396,9 +396,7 @@ class TestErrorHandling:
         """Test error for level on non-MultiIndex."""
         regular_series = pd.Series([1, 2, 3, 4])
 
-        with pytest.raises(
-            KeyError
-        ):
+        with pytest.raises(KeyError):
             SeriesGroupBy(regular_series, level="invalid")
 
     def test_array_length_mismatch(self):

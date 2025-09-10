@@ -903,7 +903,7 @@ def test_monotonic_group_key(partial, use_mask):
 
     arr = np.random.rand(len(mono_key))
     if use_mask:
-        mask = arr > .5
+        mask = arr > 0.5
     else:
         mask = slice(None)
 
