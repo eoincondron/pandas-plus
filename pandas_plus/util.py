@@ -508,7 +508,7 @@ def array_split_with_chunk_handling(
 
 def _val_to_numpy(
     val: ArrayType1D, as_list: bool = False
-) -> Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]:
+) -> np.ndarray | NumbaList[np.ndarray]:
     """
     Convert various array types to numpy array.
 
@@ -519,34 +519,33 @@ def _val_to_numpy(
 
     Returns
     -------
-    Tuple[np.ndarray | NumbaList[np.ndarray], np.dtype]
+    np.ndarray | NumbaList[np.ndarray]
         NumPy array representation of the input, as a list of arrays or a single array,
-        along with the original type if casting timestamps to ints
     """
+    try:
+        arrow: pa.Array = to_arrow(val)
+        is_chunked = isinstance(
+            arrow,
+            pa.ChunkedArray,
+        )
+    except TypeError:
+        is_chunked = False
 
-    arrow: pa.Array = to_arrow(val)
-    chunked = isinstance(
-        arrow,
-        pa.ChunkedArray,
-    )
-    if chunked:
+    if is_chunked:
         val_list = [chunk.to_numpy() for chunk in arrow.chunks]
     elif hasattr(val, "to_numpy"):
         val_list = [val.to_numpy()]  # type: ignore
     else:
         val_list = [np.asarray(val)]
 
-    val_list, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, val_list)))
-    orig_type = orig_types[0]
-
     if as_list:
-        return NumbaList(val_list), orig_type
+        return NumbaList(val_list)
     else:
         if len(val_list) > 1:
             val = np.concatenate(val_list)
         else:
             val = val_list[0]
-        return val, orig_type
+        return val
 
 
 def convert_data_to_arr_list_and_keys(
@@ -928,7 +927,10 @@ def monotonic_factorization(arr: ArrayType1D) -> Tuple[int, np.ndarray, np.ndarr
     >>> cutoff
     3
     """
-    arr_list, orig_type = _val_to_numpy(arr, as_list=True)
+    arr_list = _val_to_numpy(arr, as_list=True)
+    arr_list, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, arr_list)))
+    orig_type = orig_types[0]
+
     total_len = len(arr)
     cutoff, codes, labels = _monotonic_factorization(arr_list, total_len)
     labels = labels.astype(orig_type)

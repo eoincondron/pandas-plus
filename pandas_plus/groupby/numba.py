@@ -513,7 +513,7 @@ def _apply_group_method_single_chunk(
     >>> print(target)  # [4.0, 6.0, 5.0]
     >>> print(count)   # [2, 2, 1]
     """
-    group_key = _val_to_numpy(group_key)[0]
+    group_key = _val_to_numpy(group_key)
     if mask is not None and mask.dtype.kind == "b":
         if len(mask) != len(group_key):
             raise ValueError("Mask must have the same length as group_key")
@@ -782,15 +782,18 @@ def _group_func_wrap(
         group_key = group_key[mask]
         mask = None
 
-    group_key = _val_to_numpy(group_key)[0]
-    values, orig_type = _val_to_numpy(values, as_list=True)
+    group_key = _val_to_numpy(group_key)
+    values = _val_to_numpy(values, as_list=True)
     values_are_chunked = len(values) > 1
 
     fancy_indexing = False
     if mask is not None:
-        mask = _val_to_numpy(mask)[0]
+        mask = _val_to_numpy(mask)
         if mask.dtype.kind in "ui":
             fancy_indexing = True
+
+    values, orig_types = zip(*list(map(_maybe_cast_timestamp_arr, values)))
+    orig_type = orig_types[0]
 
     if reduce_func_name == "sum_squares":
         values = [v.astype(float) for v in values]
@@ -1124,14 +1127,17 @@ def _apply_rolling(
         raise ValueError(f"Unsupported rolling operation: {operation}")
 
     # Convert inputs to appropriate numpy arrays
-    group_key = _val_to_numpy(group_key)[0]
+    group_key = _val_to_numpy(group_key)
 
     if mask is not None:
-        mask = _val_to_numpy(mask)[0]
+        mask = _val_to_numpy(mask)
 
     rolling_1d_func = rolling_1d_funcs[operation]
-    values, orig_dtype = _val_to_numpy(values, as_list=True)
+    values = _val_to_numpy(values, as_list=True)
+    values, orig_dtypes = zip(*list(map(_maybe_cast_timestamp_arr, values)))
+    orig_dtype = orig_dtypes[0]
     values_are_times = orig_dtype.kind in "mM"
+
     null_value = _null_value_for_numpy_type(values[0].dtype)
     if allow_downcasting and not values_are_times:
         null_value = np.nan
@@ -1140,7 +1146,7 @@ def _apply_rolling(
     kwargs = {k: kwargs[k] for k in signature(rolling_1d_func).parameters}
     result = rolling_1d_func(**kwargs)
 
-    if orig_dtype.kind in "mM":
+    if values_are_times:
         if operation == "diff":
             result = result.view("m8[ns]")
         else:
@@ -1708,10 +1714,10 @@ def _apply_cumulative(
         If operation is not supported
     """
     # Convert inputs to appropriate numpy arrays
-    group_key = _val_to_numpy(group_key)[0]
+    group_key = _val_to_numpy(group_key)
 
     if mask is not None:
-        mask = _val_to_numpy(mask)[0]
+        mask = _val_to_numpy(mask)
 
     # Map operation names to reduction functions
     try:
@@ -1725,7 +1731,10 @@ def _apply_cumulative(
 
     counting = "count" in operation
 
-    values, orig_type = _val_to_numpy(values, as_list=True)
+    values = _val_to_numpy(values, as_list=True)
+    values, orig_dtypes = zip(*list(map(_maybe_cast_timestamp_arr, values)))
+    orig_dtype = orig_dtypes[0]
+
     target = _build_target_for_groupby(
         values[0].dtype, "sum" if counting else operation, len(group_key)
     )
@@ -1745,8 +1754,8 @@ def _apply_cumulative(
             na_rep = _null_value_for_numpy_type(result.dtype)
         result[np.asarray(group_key) < 0] = na_rep
 
-    elif orig_type.kind in "mM":
-        result = result.astype(orig_type)
+    elif orig_dtype.kind in "mM":
+        result = result.astype(orig_dtype)
 
     return result
 
