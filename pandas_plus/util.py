@@ -1272,7 +1272,8 @@ def factorize_2d(*vals, sort: bool = False):
     >>> codes  # NaN combinations get unique codes
     array([0, 1, 2, 0, 2])
     """
-    codes, labels = map(list, zip(*[factorize_1d(v, sort=sort) for v in vals]))
+    factored = parallel_map(lambda x: factorize_1d(x, sort=sort), list(zip(vals)))
+    codes, labels = zip(*factored)
     multi_codes = get_group_index(
         codes, tuple(map(len, labels)), sort=False, xnull=True
     )

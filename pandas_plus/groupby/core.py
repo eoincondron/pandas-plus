@@ -208,7 +208,9 @@ class GroupBy:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
         else:
             self._sort = sort
-            self._group_ikey, self._result_index = factorize_2d(*group_key_list)
+            self._group_ikey, self._result_index = factorize_2d(*group_key_list, sort=sort)
+            if sort:
+                self._index_is_sorted = True
 
     @cached_property
     def _group_key_lengths(self):
