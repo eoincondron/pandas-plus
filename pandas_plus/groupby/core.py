@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from functools import cached_property, wraps
-from typing import Callable, List, Optional, Union, Literal
+from typing import Callable, List, Optional, Union, Literal, Tuple
 from inspect import signature
 import multiprocessing
 
@@ -432,6 +432,7 @@ class GroupBy:
             levels = list(margins)
         else:
             levels = None
+
         return add_row_margin(
             result,
             agg_func=(
@@ -442,7 +443,6 @@ class GroupBy:
 
     def _build_arg_dict_for_function(self, func, values, mask, **kwargs):
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        n_values = len(value_list)
 
         sig = signature(func)
         shared_kwargs = dict(
@@ -462,6 +462,60 @@ class GroupBy:
 
         return arg_dict, common_index
 
+    def _find_first_chunk_in_slice(self, mask: slice) -> int:
+        """
+        When masking with a chunked array with a slice some chunks may be entirely excluded.
+        We need to track this to get the correct set of pointers into the combined result downstream.
+        """
+        if mask.step is not None and self.key_is_chunked:
+            raise NotImplementedError(
+                "masking with a stepped slicer and chunked group keys is not supported"
+            )
+        if mask.start is None:
+            start = 0
+        elif mask.start < 0:
+            start = len(self) + mask.start
+        else:
+            start = mask.start
+
+        # find first chunk within the mask as we need it below to get the right pointers
+        cum_length = 0
+        for i, x in enumerate(self._group_key_lengths):
+            cum_length += x
+            if cum_length > start:
+                break
+        first_chunk_in = i
+
+        return first_chunk_in
+
+    def _resolve_mask_argument_into_chunks(
+        self, mask: Union[None, slice, np.ndarray]
+    ) -> Tuple[Union[np.ndarray, pa.ChunkedArray], int, List]:
+        """ 
+        """
+        group_key = self.group_ikey
+        first_chunk_in = 0
+        mask_chunks = [None] * len(self._group_key_lengths)
+
+        if isinstance(mask, slice):
+            first_chunk_in = self._find_first_chunk_in_slice(mask)
+            group_key = self.group_ikey[mask]
+            mask_chunks = mask_chunks[first_chunk_in:]
+        else:
+            if self.key_is_chunked:
+                if not pd.api.types.is_bool_dtype(mask):
+                    # Fancy indexing does not work for chunked keys
+                    bool_mask = np.full(len(self), False)
+                    bool_mask[mask] = True
+                    mask = bool_mask
+                mask_chunks = array_split_with_chunk_handling(
+                    mask, self._group_key_lengths
+                )
+            else:
+                mask_chunks = [mask]
+
+        return group_key, first_chunk_in, mask_chunks
+
     def _apply_gb_func_across_chunked_group_keys(
         self, func_name: str, value_list, mask=None
     ) -> List[tuple[np.ndarray, np.ndarray]]:
@@ -474,56 +528,14 @@ class GroupBy:
         applying the function to each chunk, and then combining the results.
         Thus, the function is applied in parallel across both the chunks of group keys and the multiple value arrays.
         """
-        func = getattr(numba_funcs, f"group_{func_name}")
-        n_values = len(value_list)
-
-        group_keys = (
-            self._group_ikey.chunks if self.key_is_chunked else [self._group_ikey]
+        group_key, first_chunk_in, mask_chunks = (
+            self._resolve_mask_argument_into_chunks(mask)
         )
-        group_key_lengths = [len(k) for k in group_keys]
-
-        if isinstance(mask, slice):
-            if mask.step is not None and self.key_is_chunked:
-                raise NotImplementedError(
-                    "masking with a stepped slicer and chunked group keys is not supported"
-                )
-
-            group_key = self._group_ikey[mask]
-            value_list = [x[mask] for x in value_list]
-            if mask.start is None:
-                start = 0
-            elif mask.start < 0:
-                start = len(self) + mask.start
-            else:
-                start = mask.start
-
-            # find first chunk within the mask as we need it below to get the right pointers
-            cum_length = 0
-            for i, x in enumerate(group_key_lengths):
-                cum_length += x
-                if cum_length > start:
-                    break
-            first_chunk_in = i
-            mask = None
-        else:
-            group_key = self._group_ikey
-            first_chunk_in = 0
-
         group_keys = group_key.chunks if self.key_is_chunked else [group_key]
         group_key_lengths = [len(k) for k in group_keys]
 
-        if mask is not None:
-            if self.key_is_chunked:
-                if not pd.api.types.is_bool_dtype(mask):
-                    # Fancy indexing does not work for chunked keys
-                    bool_mask = np.full(len(self), False)
-                    bool_mask[mask] = True
-                    mask = bool_mask
-                mask_chunks = array_split_with_chunk_handling(mask, group_key_lengths)
-            else:
-                mask_chunks = [mask]
-        else:
-            mask_chunks = [None] * len(group_keys)
+        func = getattr(numba_funcs, f"group_{func_name}")
+        n_values = len(value_list)
 
         arg_list = []
 
@@ -535,6 +547,8 @@ class GroupBy:
         threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
 
         for values in value_list:
+            if isinstance(mask, slice):
+                values = values[mask]
             value_chunks = array_split_with_chunk_handling(
                 values, chunk_lengths=group_key_lengths
             )
