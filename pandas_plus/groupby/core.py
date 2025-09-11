@@ -539,12 +539,14 @@ class GroupBy:
 
         arg_list = []
 
-        n_cpus = multiprocessing.cpu_count()
-        max_threads = 2 * n_cpus - 1
-        total_n_numba_function_calls = len(value_list) * len(group_keys)
-
-        threads_for_one_call = max(1, max_threads // total_n_numba_function_calls)
-        threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
+        if self.key_is_chunked:
+            # In this case we are already parallelising across the row axis 
+            threads_for_one_call = 1
+        else:
+            n_cpus = multiprocessing.cpu_count()
+            max_threads = 2 * n_cpus - 1
+            threads_for_one_call = max(1, max_threads // len(value_list))
+            threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
 
         for values in value_list:
             if isinstance(mask, slice):

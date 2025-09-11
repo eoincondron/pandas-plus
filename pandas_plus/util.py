@@ -1306,3 +1306,4 @@ def mean_from_sum_count(sum_: pd.Series, count: pd.Series):
         return (sum_.astype("int64") // count).astype(sum_.dtype)
     else:
         return sum_ / count
+
