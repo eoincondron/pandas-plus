@@ -1934,7 +1934,7 @@ def crosstab(
         Group keys to use as columns in the resulting DataFrame
     values : ArrayCollection
         Values to cross-tabulate against the group keys
-    agg_func : str, default "sum"
+    aggfunc : str, default "sum"
         Aggregation function to apply to the values. Can be a string like "sum", "mean", "min", "max", etc.
     mask : Optional[ArrayType1D], default None
         Boolean mask to filter values before cross-tabulation
@@ -1991,7 +1991,8 @@ def crosstab(
             columns = pd.MultiIndex.from_product(
                 [all_levels[lvl] for lvl in column_levels]
             )
-        table = table[columns]
+
+        table = table[[c for c in columns if c in table]]
 
     return table
 

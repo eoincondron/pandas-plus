@@ -552,6 +552,17 @@ def test_pivot_table_multi_levels(aggfunc, multi_values):
     )
 
 
+def test_pivot_some_keys_missing():
+    k1 = pd.Categorical(["a", "b", "c"])[np.arange(10) % 2]
+    k2 = pd.Categorical(["x", "y", "z"])[np.arange(10) % 2]
+    result = crosstab(k1, k2)
+    expected = pd.DataFrame([
+       [5, np.nan], 
+       [np.nan, 5],
+    ], k1[[0, 1]], k2[[0, 1]])
+    assert_pd_equal(result, expected)
+
+
 class TestGroupByRowSelection:
     """Test class for GroupBy head, tail, and nth methods."""
 
