@@ -11,15 +11,17 @@ import polars as pl
 import pyarrow as pa
 
 from . import numba as numba_funcs
+from .factorization import (
+    factorize_1d,
+    factorize_2d,
+    monotonic_factorization,
+)
 from ..util import (
     ArrayType1D,
     ArrayType2D,
     to_arrow,
     is_categorical,
     array_split_with_chunk_handling,
-    factorize_1d,
-    factorize_2d,
-    monotonic_factorization,
     convert_data_to_arr_list_and_keys,
     get_array_name,
     series_is_numeric,
@@ -208,7 +210,9 @@ class GroupBy:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
         else:
             self._sort = sort
-            self._group_ikey, self._result_index = factorize_2d(*group_key_list, sort=sort)
+            self._group_ikey, self._result_index = factorize_2d(
+                *group_key_list, sort=sort
+            )
             if sort:
                 self._index_is_sorted = True
 
@@ -493,8 +497,7 @@ class GroupBy:
     def _resolve_mask_argument_into_chunks(
         self, mask: Union[None, slice, np.ndarray]
     ) -> Tuple[Union[np.ndarray, pa.ChunkedArray], int, List]:
-        """ 
-        """
+        """ """
         group_key = self.group_ikey
         first_chunk_in = 0
         mask_chunks = [None] * len(self._group_key_lengths)
@@ -542,13 +545,15 @@ class GroupBy:
         arg_list = []
 
         if self.key_is_chunked:
-            # In this case we are already parallelising across the row axis 
+            # In this case we are already parallelising across the row axis
             threads_for_one_call = 1
         else:
             n_cpus = multiprocessing.cpu_count()
             max_threads = 2 * n_cpus - 1
             threads_for_one_call = max(1, max_threads // len(value_list))
-            threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
+            threads_for_one_call = min(
+                threads_for_one_call, self._max_threads_for_numba
+            )
 
         for values in value_list:
             if isinstance(mask, slice):
