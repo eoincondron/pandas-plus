@@ -5,7 +5,7 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 import numba as nb
-from pandas.core.sorting import get_group_index
+
 
 from pandas_plus.util import (
     get_array_name,
@@ -281,6 +281,43 @@ def factorize_1d(
         return codes, pd.Index(uniques, name=values.name)
 
 
+@nb.njit
+def _weight_code_sum(codes: np.ndarray, weights: np.ndarray) -> int:
+    """
+    Numpy's dot product does not work within the scope below.
+    Also, we can handle negative codes more easily in this scope"""
+    out = 0
+    for c, w in zip(codes[:-1], weights[:-1]):
+        if c == -1:
+            return -1
+        out += c * w
+    # weight for the last code is always 1
+    return out + codes[-1]
+
+
+@nb.njit
+def _combine_factorizations(codes, max_product, code_weights):
+    combined_codes = np.zeros(len(codes), dtype="int64")
+    code_tracker = np.full(max_product, -1, dtype="int32")
+
+    max_n_uniques = min(len(codes), max_product)
+    uniques = codes[:max_n_uniques].copy()
+    group_id = 0
+    for i in range(len(combined_codes)):
+        k = _weight_code_sum(codes[i], code_weights)
+        if k == -1:
+            combined_codes[i] = -1
+        elif code_tracker[k] == -1:
+            code_tracker[k] = group_id
+            combined_codes[i] = group_id
+            uniques[group_id] = codes[i]
+            group_id += 1
+        else:
+            combined_codes[i] = code_tracker[k]
+
+    return combined_codes, uniques[:group_id]
+
+
 def factorize_2d(*vals, sort: bool = False):
     """
     Encode multiple 1-D arrays as enumerated types or categorical variables.
@@ -396,16 +433,26 @@ def factorize_2d(*vals, sort: bool = False):
     >>> codes  # NaN combinations get unique codes
     array([0, 1, 2, 0, 2])
     """
-    factored = parallel_map(lambda x: factorize_1d(x, sort=sort), list(zip(vals)))
-    codes, labels = zip(*factored)
-    multi_codes = get_group_index(
-        codes, tuple(map(len, labels)), sort=False, xnull=True
-    )
-    from pandas.core.reshape.util import cartesian_product
+    factored = parallel_map(lambda x: factorize_1d(x, sort=False), list(zip(vals)))
+    codes_list, labels = zip(*factored)
+    shape = list(map(len, labels))
+    code_arr = np.vstack(codes_list).T
+    max_product = np.prod(shape)
+    code_weights = max_product // np.cumprod(shape)
 
-    index = pd.MultiIndex(
-        codes=cartesian_product([np.arange(len(lvl)) for lvl in labels]),
-        levels=labels,
-        names=[get_array_name(v) for v in vals],
+    combined_codes, uniques = _combine_factorizations(
+        code_arr, max_product=max_product, code_weights=code_weights
     )
-    return multi_codes, index
+
+    multi_index = pd.MultiIndex(
+        codes=list(uniques.T),
+        levels=labels,
+        names=[get_array_name(lvl) for lvl in labels],
+    )
+
+    if sort:
+        argsort = multi_index.argsort()
+        combined_codes = np.argsort(argsort)[combined_codes]
+        multi_index = multi_index[argsort]
+
+    return combined_codes, multi_index
