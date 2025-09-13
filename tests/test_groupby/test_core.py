@@ -73,6 +73,11 @@ class TestGroupBy:
         result = GroupBy.sum(key, values)
         assert_pd_equal(result, expected)
 
+    def test_arraylike_list_input(self):
+        gb = GroupBy([1, 0, 1, 0])
+        sums = gb.sum([1, 2, 3, 4])
+        assert sums.to_dict() == {0: 6, 1: 4}
+
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     def test_floats_with_nulls(self, method, use_mask):
@@ -550,6 +555,17 @@ def test_pivot_table_multi_levels(aggfunc, multi_values):
     pd.testing.assert_frame_equal(
         result.loc["All"]["All"].reindex_like(expected_margin), expected_margin
     )
+
+
+def test_pivot_some_keys_missing():
+    k1 = pd.Categorical(["a", "b", "c"])[np.arange(10) % 2]
+    k2 = pd.Categorical(["x", "y", "z"])[np.arange(10) % 2]
+    result = crosstab(k1, k2)
+    expected = pd.DataFrame([
+       [5, np.nan], 
+       [np.nan, 5],
+    ], k1[[0, 1]], k2[[0, 1]])
+    assert_pd_equal(result, expected)
 
 
 class TestGroupByRowSelection:

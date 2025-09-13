@@ -82,7 +82,7 @@ The GroupBy class supports various aggregation functions:
 - `size()` - Total count of values in each group (including nulls)
 - `median()` - Median value in each group
 
-`GroupBy` also support cumulative group-by methods and rolling group-by methods
+`GroupBy` also supports cumulative group-by methods and rolling group-by methods
 
 ### Working with Pandas Data
 

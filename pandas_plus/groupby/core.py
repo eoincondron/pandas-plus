@@ -11,15 +11,17 @@ import polars as pl
 import pyarrow as pa
 
 from . import numba as numba_funcs
+from .factorization import (
+    factorize_1d,
+    factorize_2d,
+    monotonic_factorization,
+)
 from ..util import (
     ArrayType1D,
     ArrayType2D,
     to_arrow,
     is_categorical,
     array_split_with_chunk_handling,
-    factorize_1d,
-    factorize_2d,
-    monotonic_factorization,
     convert_data_to_arr_list_and_keys,
     get_array_name,
     series_is_numeric,
@@ -208,7 +210,9 @@ class GroupBy:
                 self._group_ikey, self._result_index = factorize_1d(group_key)
         else:
             self._sort = sort
-            self._group_ikey, self._result_index = factorize_2d(*group_key_list, sort=sort)
+            self._group_ikey, self._result_index = factorize_2d(
+                *group_key_list, sort=sort
+            )
             if sort:
                 self._index_is_sorted = True
 
@@ -493,8 +497,7 @@ class GroupBy:
     def _resolve_mask_argument_into_chunks(
         self, mask: Union[None, slice, np.ndarray]
     ) -> Tuple[Union[np.ndarray, pa.ChunkedArray], int, List]:
-        """ 
-        """
+        """ """
         group_key = self.group_ikey
         first_chunk_in = 0
         mask_chunks = [None] * len(self._group_key_lengths)
@@ -542,13 +545,15 @@ class GroupBy:
         arg_list = []
 
         if self.key_is_chunked:
-            # In this case we are already parallelising across the row axis 
+            # In this case we are already parallelising across the row axis
             threads_for_one_call = 1
         else:
             n_cpus = multiprocessing.cpu_count()
             max_threads = 2 * n_cpus - 1
             threads_for_one_call = max(1, max_threads // len(value_list))
-            threads_for_one_call = min(threads_for_one_call, self._max_threads_for_numba)
+            threads_for_one_call = min(
+                threads_for_one_call, self._max_threads_for_numba
+            )
 
         for values in value_list:
             if isinstance(mask, slice):
@@ -658,7 +663,13 @@ class GroupBy:
             effective_func_name = "sum"  # mean is calculated as sum/count
 
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        return_1d = isinstance(values, ArrayType1D) and len(value_list) == 1
+        return_1d = (
+            (len(value_list) == 1)
+            and isinstance(values, ArrayType1D)
+            or isinstance(values, list)
+            and np.ndim(values[0]) == 0
+        )
+
         result_col_names = [
             name if name else f"_arr_{i}" for i, name in enumerate(value_names)
         ]
@@ -1929,7 +1940,7 @@ def crosstab(
         Group keys to use as columns in the resulting DataFrame
     values : ArrayCollection
         Values to cross-tabulate against the group keys
-    agg_func : str, default "sum"
+    aggfunc : str, default "sum"
         Aggregation function to apply to the values. Can be a string like "sum", "mean", "min", "max", etc.
     mask : Optional[ArrayType1D], default None
         Boolean mask to filter values before cross-tabulation
@@ -1986,7 +1997,8 @@ def crosstab(
             columns = pd.MultiIndex.from_product(
                 [all_levels[lvl] for lvl in column_levels]
             )
-        table = table[columns]
+
+        table = table[[c for c in columns if c in table]]
 
     return table
 
