@@ -663,7 +663,13 @@ class GroupBy:
             effective_func_name = "sum"  # mean is calculated as sum/count
 
         value_names, value_list, common_index = self._preprocess_arguments(values, mask)
-        return_1d = isinstance(values, ArrayType1D) and len(value_list) == 1
+        return_1d = (
+            (len(value_list) == 1)
+            and isinstance(values, ArrayType1D)
+            or isinstance(values, list)
+            and np.ndim(values[0]) == 0
+        )
+
         result_col_names = [
             name if name else f"_arr_{i}" for i, name in enumerate(value_names)
         ]

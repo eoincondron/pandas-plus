@@ -658,6 +658,14 @@ def convert_data_to_arr_list_and_keys(
         array = dict(data)
         return list(array.values()), list(array.keys())
     elif isinstance(data, (tuple, list)):
+        if np.ndim(data[0]) == 0:
+            try:
+                data = np.array(data)
+            except ValueError:
+                raise ValueError(
+                    "Could not convert list input containing scalars to an array"
+                )
+            return convert_data_to_arr_list_and_keys(data)
         names = map(get_array_name, data)
         return list(data), list(names)
     elif isinstance(data, np.ndarray) and data.ndim == 2:

@@ -73,6 +73,11 @@ class TestGroupBy:
         result = GroupBy.sum(key, values)
         assert_pd_equal(result, expected)
 
+    def test_arraylike_list_input(self):
+        gb = GroupBy([1, 0, 1, 0])
+        sums = gb.sum([1, 2, 3, 4])
+        assert sums.to_dict() == {0: 6, 1: 4}
+
     @pytest.mark.parametrize("use_mask", [True, False])
     @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
     def test_floats_with_nulls(self, method, use_mask):
