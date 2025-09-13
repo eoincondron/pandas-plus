@@ -631,7 +631,7 @@ def _val_to_numpy(
 
 
 def convert_data_to_arr_list_and_keys(
-    data, temp_name_root: str = "_arr_"
+    data,
 ) -> Tuple[List[ArrayType1D], List[str]]:
     """
     Convert various array-like inputs to a dictionary of named arrays.
@@ -641,8 +641,6 @@ def convert_data_to_arr_list_and_keys(
     data : Various types
         Input arrays in various formats (Mapping, list/tuple of arrays, 2D array,
         pandas/polars Series or DataFrame)
-    temp_name_root : str, default "_arr_"
-        Prefix to use for generating temporary names for unnamed arrays
 
     Returns
     -------
